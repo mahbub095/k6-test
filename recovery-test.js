@@ -14,7 +14,7 @@ import { check, sleep, group } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const BASE_URL = 'https://stage-api.bhata.gov.bd/api/v1/';
+const BASE_URL = 'https://asianserver.xyz/';
 
 // ── Custom Metrics ────────────────────────────────────────────────────────────
 const getResponseTime   = new Trend('get_response_time', true);
@@ -52,7 +52,7 @@ export const options = {
 export default function () {
 
     // Step 1: Load login page and retrieve CSRF token
-    const pageRes = http.get(`${BASE_URL}admin/login`, {
+    const pageRes = http.get(`${BASE_URL}/login`, {
         timeout: '30s',
         tags: { step: 'get-login-page', test: 'recovery' },
     });
@@ -107,6 +107,6 @@ export default function () {
         });
         errorRate.add(!ok);
     });
-    
+
     sleep(1);
 }
