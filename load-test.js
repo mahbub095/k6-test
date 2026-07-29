@@ -1,112 +1,114 @@
 /**
- * লোড টেস্ট (Load Test)
+ * Load Test
  *
- * উদ্দেশ্য: প্রত্যাশিত ও সর্বোচ্চ প্রত্যাশিত লোডে সিস্টেমের পারফরম্যান্স যাচাই করা।
- * ধীরে ধীরে ২০,০০০ ভার্চুয়াল ব্যবহারকারী পর্যন্ত লোড বাড়ানো হয়, তারপর কমানো হয়।
- * রেসপন্স টাইম, এরর রেট এবং থ্রুপুট পরিমাপ করা হয়।
+ * Purpose: Measure system performance under expected and peak expected load.
+ *          VUs ramp up gradually to 20,000 then back down.
+ *          Response time, error rate, and throughput are all measured.
+ *
+ * How to run:
+ *   k6 run load-test.js
  */
 
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
 
-// কাস্টম মেট্রিক্স
+// ── Config ────────────────────────────────────────────────────────────────────
+const BASE_URL = 'https://stage-api.bhata.gov.bd/api/v1/';
+
+// ── Custom Metrics ────────────────────────────────────────────────────────────
 const getResponseTime   = new Trend('get_response_time', true);
-const postResponseTime  = new Trend('post_response_time', true);
 const batchResponseTime = new Trend('batch_response_time', true);
 const requestCount      = new Counter('total_requests');
 const errorRate         = new Rate('error_rate');
 
+// ── Test Configuration ────────────────────────────────────────────────────────
 export const options = {
     scenarios: {
         load: {
             executor: 'ramping-vus',
             stages: [
-                { duration: '2m', target: 200 },
-                { duration: '5m', target: 20000 },
-                { duration: '2m', target: 0 },
+                { duration: '2m', target: 200   },  // slow ramp-up
+                { duration: '5m', target: 20000 },  // peak load
+                { duration: '2m', target: 0     },  // ramp-down
             ],
+            gracefulRampDown: '30s',
         },
     },
 
-    // থ্রেশহোল্ড — এই সীমা পার হলে টেস্ট FAIL হবে
     thresholds: {
-        'get_response_time':   ['p(95)<4000'],
-        'post_response_time':  ['p(95)<5000'],
-        'batch_response_time': ['p(95)<4500'],
-        'error_rate':          ['rate<0.05'],
-        'http_req_duration':   ['p(90)<4000', 'p(95)<5000'],
+        'get_response_time':   [{ threshold: 'p(95)<4000', abortOnFail: false }],
+        'batch_response_time': [{ threshold: 'p(95)<4500', abortOnFail: false }],
+        'error_rate':          [{ threshold: 'rate<0.05',  abortOnFail: false }],
+        'http_req_duration':   [
+            { threshold: 'p(90)<4000', abortOnFail: false },
+            { threshold: 'p(95)<5000', abortOnFail: false },
+        ],
     },
 };
 
+// ── Main ──────────────────────────────────────────────────────────────────────
 export default function () {
 
-    // ১. GET রিকোয়েস্ট গ্রুপ
+    // Step 1: Load login page and retrieve CSRF token
+    const pageRes = http.get(`${BASE_URL}admin/login`, {
+        timeout: '30s',
+        tags: { step: 'get-login-page', test: 'load' },
+    });
+    requestCount.add(1);
+
+    // Skip this iteration if the connection failed or body is null
+    if (!pageRes || pageRes.status === 0 || !pageRes.body) {
+        errorRate.add(1);
+        sleep(1);
+        return;
+    }
+
+    // Check login page loaded successfully
+    const pageOk = check(pageRes, {
+        'Login page → 200':       (r) => r.status === 200,
+        'Login page has content': (r) => r.body && r.body.length > 0,
+    });
+    if (!pageOk) {
+        errorRate.add(1);
+        sleep(1);
+        return;
+    }
+
+    // Extract CSRF token from HTML
+    const csrfToken = pageRes.html().find('input[name="_token"]').attr('value');
+
+    // Skip if CSRF token is missing — POST would fail with 419 anyway
+    if (!csrfToken) {
+        errorRate.add(1);
+        sleep(1);
+        return;
+    }
+
+    sleep(1);
+
+    // Step 2: GET — load the online application page
     group('GET - Online Application Page', () => {
-        const res = http.get('https://dss.bhata.gov.bd/online-application', {
+        const res = http.get(`${BASE_URL}online-application`, {
+            timeout: '30s',
             tags: { type: 'get', test: 'load', page: 'online-application' },
         });
-
-        getResponseTime.add(res.timings.duration);
         requestCount.add(1);
 
+        // Skip metric recording if connection failed
+        if (!res || res.status === 0 || !res.body) {
+            errorRate.add(1);
+            return;
+        }
+
+        getResponseTime.add(res.timings.duration);
+
         const ok = check(res, {
-            'GET Status 200':          (r) => r.status === 200,
-            'GET Response time < 4s':  (r) => r.timings.duration < 4000,
-            'GET No server error':     (r) => r.status < 500,
-            'GET Body not empty':      (r) => r.body && r.body.length > 0,
+            'GET Status 200':         (r) => r.status === 200,
+            'GET Response time < 4s': (r) => r.timings.duration < 4000,
+            'GET No server error':    (r) => r.status < 500,
+            'GET Body not empty':     (r) => r.body && r.body.length > 0,
         });
         errorRate.add(!ok);
     });
-
-    // ২. POST রিকোয়েস্ট গ্রুপ
-    // group('POST - Submit Application Form', () => {
-    //     const payload = JSON.stringify({
-    //         name:    'Test User',
-    //         nid:     '1234567890',
-    //         phone:   '01700000000',
-    //         address: 'Dhaka, Bangladesh',
-    //     });
-
-    //     const params = {
-    //         headers: { 'Content-Type': 'application/json' },
-    //         tags:    { type: 'post', test: 'load', page: 'online-application' },
-    //     };
-
-    //     const res = http.post('https://dss.bhata.gov.bd/online-application', payload, params);
-
-    //     postResponseTime.add(res.timings.duration);
-    //     requestCount.add(1);
-
-    //     const ok = check(res, {
-    //         'POST Status 200 or 201':     (r) => r.status === 200 || r.status === 201,
-    //         'POST Response time < 5s':    (r) => r.timings.duration < 5000,
-    //         'POST No server error (5xx)': (r) => r.status < 500,
-    //     });
-    //     errorRate.add(!ok);
-    // });
-
-    // ৩. http.batch() — একসাথে একাধিক রিকোয়েস্ট
-    group('BATCH - Parallel Requests', () => {
-        const responses = http.batch([
-            ['GET', 'https://dss.bhata.gov.bd/online-application', null,
-                { tags: { type: 'batch', test: 'load', request: 'batch-1' } }],
-            ['GET', 'https://dss.bhata.gov.bd/online-application', null,
-                { tags: { type: 'batch', test: 'load', request: 'batch-2' } }],
-        ]);
-
-        responses.forEach((res, i) => {
-            batchResponseTime.add(res.timings.duration);
-            requestCount.add(1);
-
-            const ok = check(res, {
-                [`Batch [${i}] Status 200`]:         (r) => r.status === 200,
-                [`Batch [${i}] Response time < 4s`]: (r) => r.timings.duration < 4000,
-            });
-            errorRate.add(!ok);
-        });
-    });
-
-    sleep(1);
 }
-

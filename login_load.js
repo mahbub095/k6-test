@@ -1,36 +1,36 @@
 /**
- * লোড টেস্ট — Login Phase
+ * Load Test — Login Phase
  *
- * উদ্দেশ্য: ধীরে ধীরে ২০,০০০ VU পর্যন্ত লোড বাড়িয়ে লগইন এন্ডপয়েন্টের
- *           রেসপন্স টাইম, এরর রেট ও থ্রুপুট পরিমাপ করা।
+ * Purpose: Gradually ramp up to 20,000 VUs and measure the login endpoint's
+ *          response time, error rate, and throughput.
  *
- * চালানোর নিয়ম:
- *   k6 run k6/scenarios/login_load.js
+ * How to run:
+ *   k6 run login_load.js
  */
 
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
 
-// ── কনফিগ ─────────────────────────────────────────────────────────────────────
+// ── Config ────────────────────────────────────────────────────────────────────
 const BASE_URL = 'https://stage-api.bhata.gov.bd/api/v1/';
 const EMAIL    = 'admin';
 const PASSWORD = 'admin';
 
-// ── কাস্টম মেট্রিক্স ─────────────────────────────────────────────────────────
+// ── Custom Metrics ────────────────────────────────────────────────────────────
 const loginDuration = new Trend('login_duration', true);
 const requestCount  = new Counter('total_requests');
 const errorRate     = new Rate('error_rate');
 
-// ── টেস্ট কনফিগারেশন ─────────────────────────────────────────────────────────
+// ── Test Configuration ────────────────────────────────────────────────────────
 export const options = {
     scenarios: {
         load: {
             executor: 'ramping-vus',
             stages: [
-                { duration: '2m', target: 200   },  // ধীরে রেম্প-আপ
-                { duration: '5m', target: 20000 },  // পিক লোড
-                { duration: '2m', target: 0     },  // রেম্প-ডাউন
+                { duration: '2m', target: 200   },  // slow ramp-up
+                { duration: '5m', target: 20000 },  // peak load
+                { duration: '2m', target: 0     },  // ramp-down
             ],
             gracefulRampDown: '30s',
         },
@@ -49,24 +49,23 @@ export const options = {
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function () {
 
-    // ধাপ ১: লগইন পেজ থেকে CSRF টোকেন নেওয়া
+    // Step 1: Load login page and retrieve CSRF token
     const pageRes = http.get(`${BASE_URL}/admin/login`, {
         timeout: '30s',
         tags: { step: 'get-login-page' },
     });
     requestCount.add(1);
 
-    // সংযোগ ব্যর্থ হলে অথবা বডি না থাকলে এই ইটারেশন বাদ দাও
+    // Skip this iteration if the connection failed or body is null
     if (!pageRes || pageRes.status === 0 || !pageRes.body) {
-        console.warn(`[GET] Connection failed or empty body — status: ${pageRes ? pageRes.status : 'null'}`);
         errorRate.add(1);
         sleep(1);
         return;
     }
 
-    // পেজ লোড চেক
+    // Check login page loaded successfully
     const pageOk = check(pageRes, {
-        'Login page → 200':      (r) => r.status === 200,
+        'Login page → 200':       (r) => r.status === 200,
         'Login page has content': (r) => r.body && r.body.length > 0,
     });
     if (!pageOk) {
@@ -75,10 +74,11 @@ export default function () {
         return;
     }
 
-    // HTML থেকে CSRF টোকেন বের করা
+    // Extract CSRF token from HTML
     const csrfToken = pageRes.html().find('input[name="_token"]').attr('value');
+
+    // Skip if CSRF token is missing — POST would fail with 419 anyway
     if (!csrfToken) {
-        console.warn('[CSRF] Token not found in login page — skipping iteration');
         errorRate.add(1);
         sleep(1);
         return;
@@ -86,7 +86,8 @@ export default function () {
 
     sleep(1);
 
-    // ধাপ ২: email ও password দিয়ে লগইন
+    // Step 2: Submit login with email and password
+  
     const loginRes = http.post(
         `${BASE_URL}/admin/login`,
         { _token: csrfToken, email: EMAIL, password: PASSWORD },
@@ -102,9 +103,8 @@ export default function () {
     );
     requestCount.add(1);
 
-    // লগইন রেসপন্স নাল হলে বাদ দাও
+    // Skip if login response is null or connection failed
     if (!loginRes || loginRes.status === 0) {
-        console.warn(`[POST] Login request failed — status: ${loginRes ? loginRes.status : 'null'}`);
         errorRate.add(1);
         sleep(1);
         return;

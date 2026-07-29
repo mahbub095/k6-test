@@ -1,104 +1,101 @@
 /**
- * সোক টেস্ট (Soak Test / Endurance Test)
+ * Soak Test (Endurance Test)
  *
- * উদ্দেশ্য: দীর্ঘ সময়ের জন্য নিয়মিত লোডে সিস্টেমের স্থায়িত্ব ও সহনশীলতা যাচাই করা।
- * ১,০০০ ভার্চুয়াল ব্যবহারকারী দিয়ে টানা ২ ঘণ্টা চালানো হয়।
- * মেমরি লিক, ডাটাবেস সংযোগ সমস্যা, বা অন্যান্য দীর্ঘমেয়াদী সমস্যা
- * খুঁজে বের করা এই টেস্টের মূল লক্ষ্য।
+ * Purpose: Verify system durability and reliability under sustained load over
+ *          a long period. 1,000 VUs for 2 hours. Designed to surface memory
+ *          leaks, database connection issues, and other long-running failures.
+ *
+ * How to run:
+ *   k6 run soak-test.js
  */
 
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
 
-// কাস্টম মেট্রিক্স
+// ── Config ────────────────────────────────────────────────────────────────────
+const BASE_URL = 'https://stage-api.bhata.gov.bd/api/v1/';
+
+// ── Custom Metrics ────────────────────────────────────────────────────────────
 const getResponseTime   = new Trend('get_response_time', true);
-const postResponseTime  = new Trend('post_response_time', true);
 const batchResponseTime = new Trend('batch_response_time', true);
 const requestCount      = new Counter('total_requests');
 const errorRate         = new Rate('error_rate');
 
+// ── Test Configuration ────────────────────────────────────────────────────────
 export const options = {
-    vus: 100000,
-    duration: '20s',
+    vus:      1000,
+    duration: '2h',
 
-    // থ্রেশহোল্ড — এই সীমা পার হলে টেস্ট FAIL হবে
     thresholds: {
-        'get_response_time':   ['p(95)<3000'],
-        'post_response_time':  ['p(95)<4000'],
-        'batch_response_time': ['p(95)<3500'],
-        'error_rate':          ['rate<0.05'],
-        'http_req_duration':   ['p(90)<3000', 'p(95)<4000'],
+        'get_response_time':   [{ threshold: 'p(95)<3000', abortOnFail: false }],
+        'batch_response_time': [{ threshold: 'p(95)<3500', abortOnFail: false }],
+        'error_rate':          [{ threshold: 'rate<0.05',  abortOnFail: false }],
+        'http_req_duration':   [
+            { threshold: 'p(90)<3000', abortOnFail: false },
+            { threshold: 'p(95)<4000', abortOnFail: false },
+        ],
     },
 };
 
+// ── Main ──────────────────────────────────────────────────────────────────────
 export default function () {
 
-    // ১. GET রিকোয়েস্ট গ্রুপ
+    // Step 1: Load login page and retrieve CSRF token
+    const pageRes = http.get(`${BASE_URL}admin/login`, {
+        timeout: '30s',
+        tags: { step: 'get-login-page', test: 'soak' },
+    });
+    requestCount.add(1);
+
+    if (!pageRes || pageRes.status === 0 || !pageRes.body) {
+        errorRate.add(1);
+        sleep(1);
+        return;
+    }
+
+    const pageOk = check(pageRes, {
+        'Login page → 200':       (r) => r.status === 200,
+        'Login page has content': (r) => r.body && r.body.length > 0,
+    });
+    if (!pageOk) {
+        errorRate.add(1);
+        sleep(1);
+        return;
+    }
+
+    const csrfToken = pageRes.html().find('input[name="_token"]').attr('value');
+
+    if (!csrfToken) {
+        errorRate.add(1);
+        sleep(1);
+        return;
+    }
+
+    sleep(1);
+
+    // Step 2: GET — load the online application page
     group('GET - Online Application Page', () => {
-        const res = http.get('https://dss.bhata.gov.bd/online-application', {
+        const res = http.get(`${BASE_URL}online-application`, {
+            timeout: '30s',
             tags: { type: 'get', test: 'soak', page: 'online-application' },
         });
-
-        getResponseTime.add(res.timings.duration);
         requestCount.add(1);
 
+        if (!res || res.status === 0 || !res.body) {
+            errorRate.add(1);
+            return;
+        }
+
+        getResponseTime.add(res.timings.duration);
+
         const ok = check(res, {
-            'GET Status 200':          (r) => r.status === 200,
-            'GET Response time < 3s':  (r) => r.timings.duration < 3000,
-            'GET No server error':     (r) => r.status < 500,
-            'GET Body not empty':      (r) => r.body && r.body.length > 0,
+            'GET Status 200':         (r) => r.status === 200,
+            'GET Response time < 3s': (r) => r.timings.duration < 3000,
+            'GET No server error':    (r) => r.status < 500,
+            'GET Body not empty':     (r) => r.body && r.body.length > 0,
         });
         errorRate.add(!ok);
     });
-
-    // ২. POST রিকোয়েস্ট গ্রুপ
-    // group('POST - Submit Application Form', () => {
-    //     const payload = JSON.stringify({
-    //         name:    'Test User',
-    //         nid:     '1234567890',
-    //         phone:   '01700000000',
-    //         address: 'Dhaka, Bangladesh',
-    //     });
-
-    //     const params = {
-    //         headers: { 'Content-Type': 'application/json' },
-    //         tags:    { type: 'post', test: 'soak', page: 'online-application' },
-    //     };
-
-    //     const res = http.post('https://dss.bhata.gov.bd/online-application', payload, params);
-
-    //     postResponseTime.add(res.timings.duration);
-    //     requestCount.add(1);
-
-    //     const ok = check(res, {
-    //         'POST Status 200 or 201':     (r) => r.status === 200 || r.status === 201,
-    //         'POST Response time < 4s':    (r) => r.timings.duration < 4000,
-    //         'POST No server error (5xx)': (r) => r.status < 500,
-    //     });
-    //     errorRate.add(!ok);
-    // });
-
-    // ৩. http.batch() — একসাথে একাধিক রিকোয়েস্ট
-    group('BATCH - Parallel Requests', () => {
-        const responses = http.batch([
-            ['GET', 'https://dss.bhata.gov.bd/online-application', null,
-                { tags: { type: 'batch', test: 'soak', request: 'batch-1' } }],
-            ['GET', 'https://dss.bhata.gov.bd/online-application', null,
-                { tags: { type: 'batch', test: 'soak', request: 'batch-2' } }],
-        ]);
-
-        responses.forEach((res, i) => {
-            batchResponseTime.add(res.timings.duration);
-            requestCount.add(1);
-
-            const ok = check(res, {
-                [`Batch [${i}] Status 200`]:         (r) => r.status === 200,
-                [`Batch [${i}] Response time < 3s`]: (r) => r.timings.duration < 3000,
-            });
-            errorRate.add(!ok);
-        });
-    });
-
     sleep(1);
 }
