@@ -14,7 +14,7 @@ import { check, sleep, group } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const BASE_URL = 'https://asianserver.xyz/';
+const BASE_URL = 'https://asianserver.xyz';
 
 // Helper to generate a random IP address to bypass single-IP rate limits
 function getRandomIP() {
@@ -70,12 +70,35 @@ export const options = {
         recovery: {
             executor: 'ramping-vus',
             stages: [
-              { duration: '2m', target: 2000 },  // lower from 8000
+                { duration: '2m', target: 2000 },  // lower from 8000
                 { duration: '5m', target: 2000 },
                 { duration: '3m', target: 50 },    // lower from 100
                 { duration: '5m', target: 50 },
             ],
             gracefulRampDown: '30s',
+        },
+    },
+
+        // ── Grafana Cloud Configuration ───────────────────────────────────────────
+    // Run with: k6 cloud run peak-load.js
+    cloud: {
+        name:        'Peak Load Test',
+        projectID:   8273634,    // 🔴 REPLACE WITH YOUR ACTUAL PROJECT ID NUMBER
+        
+        // Load distributed across 3 regions → 3 different IP ranges
+        distribution: {
+            'amazon:us:ashburn': {      // US East (Virginia) IPs
+                loadZone: 'amazon:us:ashburn',
+                percent: 34
+            },
+            'amazon:ie:dublin': {       // Europe (Ireland) IPs  
+                loadZone: 'amazon:ie:dublin',
+                percent: 33
+            },
+            'amazon:sg:singapore': {    // Asia (Singapore) IPs
+                loadZone: 'amazon:sg:singapore',
+                percent: 33
+            },
         },
     },
 

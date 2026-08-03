@@ -36,6 +36,29 @@ export const options = {
         },
     },
 
+    // ── Grafana Cloud Configuration ───────────────────────────────────────────
+    // Run with: k6 cloud run peak-load.js
+    cloud: {
+        name:        'Peak Load Test',
+        projectID:   8273634,    // 🔴 REPLACE WITH YOUR ACTUAL PROJECT ID NUMBER
+        
+        // Load distributed across 3 regions → 3 different IP ranges
+        distribution: {
+            'amazon:us:ashburn': {      // US East (Virginia) IPs
+                loadZone: 'amazon:us:ashburn',
+                percent: 34
+            },
+            'amazon:ie:dublin': {       // Europe (Ireland) IPs  
+                loadZone: 'amazon:ie:dublin',
+                percent: 33
+            },
+            'amazon:sg:singapore': {    // Asia (Singapore) IPs
+                loadZone: 'amazon:sg:singapore',
+                percent: 33
+            },
+        },
+    },
+
     thresholds: {
         'get_response_time':   [{ threshold: 'p(95)<3000', abortOnFail: false }],
         'batch_response_time': [{ threshold: 'p(95)<3500', abortOnFail: false }],
