@@ -14,7 +14,7 @@ import { check, sleep, group } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const BASE_URL = 'https://stage-api.bhata.gov.bd/api/v1/';
+const BASE_URL = 'https://api.bhata.gov.bd/api/v1/';
 
 // ── Custom Metrics ────────────────────────────────────────────────────────────
 const getResponseTime   = new Trend('get_response_time', true);
@@ -34,6 +34,16 @@ export const options = {
             ],
             gracefulRampDown: '30s',
         },
+    },
+
+    // ── Grafana Cloud Configuration ───────────────────────────────────────────
+    // Run with: k6 cloud run load-test.js
+    cloud: {
+        name:        'Load Test',
+        projectID:   8273634,    // ✅ Your Project ID
+        
+        // Free tier only allows 1 load zone
+        // Remove distribution block for Free tier
     },
 
     thresholds: {

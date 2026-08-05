@@ -14,7 +14,7 @@ import { check, sleep, group } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const BASE_URL = 'https://asianserver.xyz';
+const BASE_URL = 'https://asianserver.xyz/';
 
 // Helper to generate a random IP address to bypass single-IP rate limits
 function getRandomIP() {
@@ -70,8 +70,8 @@ export const options = {
         recovery: {
             executor: 'ramping-vus',
             stages: [
-                { duration: '2m', target: 2000 },  // lower from 8000
-                { duration: '5m', target: 2000 },
+                { duration: '2m', target: 100 },  // lower from 8000
+                { duration: '5m', target: 100 },
                 { duration: '3m', target: 50 },    // lower from 100
                 { duration: '5m', target: 50 },
             ],
@@ -80,28 +80,19 @@ export const options = {
     },
 
         // ── Grafana Cloud Configuration ───────────────────────────────────────────
-    // Run with: k6 cloud run peak-load.js
+    // Run with: k6 cloud run recovery-test.js
     cloud: {
-        name:        'Peak Load Test',
-        projectID:   8273634,    // 🔴 REPLACE WITH YOUR ACTUAL PROJECT ID NUMBER
+        name:        'Recovery Test',
+        projectID:   8273634,                 // ✅ Your Project ID is there
         
-        // Load distributed across 3 regions → 3 different IP ranges
-        distribution: {
-            'amazon:us:ashburn': {      // US East (Virginia) IPs
-                loadZone: 'amazon:us:ashburn',
-                percent: 34
-            },
-            'amazon:ie:dublin': {       // Europe (Ireland) IPs  
-                loadZone: 'amazon:ie:dublin',
-                percent: 33
-            },
-            'amazon:sg:singapore': {    // Asia (Singapore) IPs
-                loadZone: 'amazon:sg:singapore',
-                percent: 33
-            },
-        },
+         distribution: {
+        'amazon:us:ashburn':      { loadZone: 'amazon:us:ashburn', percent: 100 },
+        // 'amazon:ie:dublin':       { loadZone: 'amazon:ie:dublin', percent: 33 },
+        // 'amazon:sg:singapore':    { loadZone: 'amazon:sg:singapore', percent: 33 },
     },
 
+        },
+    
     thresholds: {
         'get_response_time': [{ threshold: 'p(95)<5000', abortOnFail: false }],
         'batch_response_time': [{ threshold: 'p(95)<5500', abortOnFail: false }],

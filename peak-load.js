@@ -40,23 +40,10 @@ export const options = {
     // Run with: k6 cloud run peak-load.js
     cloud: {
         name:        'Peak Load Test',
-        projectID:   8273634,    // 🔴 REPLACE WITH YOUR ACTUAL PROJECT ID NUMBER
+        projectID:   8273634,    // ✅ Your Project ID
         
-        // Load distributed across 3 regions → 3 different IP ranges
-        distribution: {
-            'amazon:us:ashburn': {      // US East (Virginia) IPs
-                loadZone: 'amazon:us:ashburn',
-                percent: 34
-            },
-            'amazon:ie:dublin': {       // Europe (Ireland) IPs  
-                loadZone: 'amazon:ie:dublin',
-                percent: 33
-            },
-            'amazon:sg:singapore': {    // Asia (Singapore) IPs
-                loadZone: 'amazon:sg:singapore',
-                percent: 33
-            },
-        },
+        // Free tier only allows 1 load zone
+        // Remove distribution block for Free tier
     },
 
     thresholds: {
