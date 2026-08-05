@@ -15,13 +15,13 @@ import { Trend, Counter, Rate } from 'k6/metrics';
 // ── Config ────────────────────────────────────────────────────────────────────
 const BASE_URL = 'https://api.bhata.gov.bd/api/v1/';  // Your actual API
 // const BASE_URL = 'https://asianserver.xyz';  // Old URL
-const EMAIL    = 'admin';
+const EMAIL = 'admin';
 const PASSWORD = 'admin';
 
 // ── Custom Metrics ────────────────────────────────────────────────────────────
 const loginDuration = new Trend('login_duration', true);
-const requestCount  = new Counter('total_requests');
-const errorRate     = new Rate('error_rate');
+const requestCount = new Counter('total_requests');
+const errorRate = new Rate('error_rate');
 
 // ── Test Configuration ────────────────────────────────────────────────────────
 export const options = {
@@ -29,27 +29,30 @@ export const options = {
         load: {
             executor: 'ramping-vus',
             stages: [
-                { duration: '2m', target: 100   },  // slow ramp-up
-                { duration: '5m', target: 100 },  // peak load
-                { duration: '2m', target: 10     },  // ramp-down
+                { duration: '2m', target: 2000 },  // slow ramp-up
+                { duration: '5m', target: 1000 },  // peak load
+                { duration: '2m', target: 50 },  // ramp-down
             ],
             gracefulRampDown: '30s',
         },
     },
 
     // ── Grafana Cloud Configuration ───────────────────────────────────────────
-    // Run with: k6 cloud run login_load.js
+    // Run with: k6 cloud run recovery-test.js
     cloud: {
-        name:        'Login Load Test',
-        projectID:   8273634,    // ✅ Your Project ID
-        
-        // Free tier only allows 1 load zone
-        // Remove distribution block for Free tier
+        name: 'Recovery Test',
+        projectID: 8273634,                 // ✅ Your Project ID is there
+
+        distribution: {
+            'amazon:us:ashburn': { loadZone: 'amazon:us:ashburn', percent: 100 },
+            // 'amazon:ie:dublin':       { loadZone: 'amazon:ie:dublin', percent: 33 },
+            // 'amazon:sg:singapore':    { loadZone: 'amazon:sg:singapore', percent: 33 },
+        },
     },
 
     thresholds: {
-        'login_duration':    [{ threshold: 'p(95)<5000',  abortOnFail: false }],
-        'error_rate':        [{ threshold: 'rate<0.05',   abortOnFail: false }],
+        'login_duration': [{ threshold: 'p(95)<5000', abortOnFail: false }],
+        'error_rate': [{ threshold: 'rate<0.05', abortOnFail: false }],
         'http_req_duration': [
             { threshold: 'p(90)<4000', abortOnFail: false },
             { threshold: 'p(95)<5000', abortOnFail: false },
@@ -79,7 +82,7 @@ export default function () {
 
     // Check login page loaded successfully
     const pageOk = check(pageRes, {
-        'Login page → 200':       (r) => r.status === 200,
+        'Login page → 200': (r) => r.status === 200,
         'Login page has content': (r) => r.body && r.body.length > 0,
     });
     if (!pageOk) {
@@ -145,8 +148,8 @@ export default function () {
     // Better success checks
     const ok = check(loginRes, {
         'Login POST successful': (r) => r.status === 200 || r.status === 302,  // 302 = redirect success
-        'Login POST < 5s':       (r) => r.timings.duration < 5000,
-        'No server error':       (r) => r.status < 500,
+        'Login POST < 5s': (r) => r.timings.duration < 5000,
+        'No server error': (r) => r.status < 500,
         // Check for successful login indicators
         'Dashboard redirect': (r) => r.url.includes('/dashboard') || r.url.includes('/home'),
         'Login error missing': (r) => !r.body.includes('Invalid credentials') && !r.body.includes('Login failed')
