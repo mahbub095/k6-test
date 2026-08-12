@@ -1,0 +1,7 @@
+username,password,captcha_value,captcha_token,otp
+ibcs-qa-super,Password#4,12345,captcha_token_1,123456
+admin_user,Admin@123,67890,captcha_token_2,654321
+test_user,Test@456,54321,captcha_token_3,987654
+user1,Pass123!,11111,captcha_token_4,111111
+user2,Pass456!,22222,captcha_token_5,222222
+user3,Pass789!,33333,captcha_token_6,333333

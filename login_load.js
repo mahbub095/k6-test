@@ -11,12 +11,32 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
+// import papaparse from 'https://jslib.k6.io/papaparse/5.1.1/index.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const BASE_URL = 'https://api.bhata.gov.bd/api/v1/';  // Your actual API
+const BASE_URL = 'https://api.bhata.gov.bd';  // Your actual API
 // const BASE_URL = 'https://asianserver.xyz';  // Old URL
-const EMAIL = 'admin';
+const USERNAME = 'admin';
 const PASSWORD = 'admin';
+const CAPTCHA_VALUE = '12345';
+const CAPTCHA_TOKEN = 'captcha_token_1';
+const OTP = '123456';
+
+// ── CSV Data Import ──────────────────────────────────────────────────────────
+// Load CSV file with user credentials
+// const csvData = new SharedArray('login_users', function() {
+//     const data = papaparse.parse(open('./login_users_k6.csv'), { header: true }).data;
+//     console.log(`Loaded ${data.length} users from CSV`);
+//     return data;
+// });
+// 
+// // Validate CSV data
+// if (csvData.length === 0) {
+//     console.error('ERROR: No user data loaded from CSV file');
+//     throw new Error('CSV data is empty');
+// }
+// 
+// console.log(`CSV data loaded successfully with ${csvData.length} users`);
 
 // ── Custom Metrics ────────────────────────────────────────────────────────────
 const loginDuration = new Trend('login_duration', true);
@@ -29,8 +49,8 @@ export const options = {
         load: {
             executor: 'ramping-vus',
             stages: [
-                { duration: '2m', target: 2000 },  // slow ramp-up
-                { duration: '5m', target: 1000 },  // peak load
+                { duration: '2m', target: 20000 },  // slow ramp-up
+                { duration: '5m', target: 4000 },  // peak load
                 { duration: '2m', target: 50 },  // ramp-down
             ],
             gracefulRampDown: '30s',
@@ -62,9 +82,18 @@ export const options = {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function () {
+    // Get random user from CSV data
+    // const userIndex = Math.floor(Math.random() * csvData.length);
+    // const user = csvData[userIndex];
+    // 
+    // // Log which user is being used (for debugging)
+    // console.log(`Using user: ${user.username} (index: ${userIndex})`);
+    
+    // Log that we're using config default data
+    console.log(`Using config default credentials: ${USERNAME}`);
 
     // Step 1: Load login page and retrieve CSRF token
-    const pageRes = http.get(`${BASE_URL}admin/login`, {
+    const pageRes = http.get(`${BASE_URL}/`, {
         timeout: '30s',
         tags: { step: 'get-login-page' },
         headers: {
@@ -113,13 +142,16 @@ export default function () {
     ];
     const randomUserAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
 
-    // Step 2: Submit login with email and password
+    // Step 2: Submit login with config default credentials
     const loginRes = http.post(
-        `${BASE_URL}admin/login`,  // Correct path for your API
+        `${BASE_URL}/api/v1/admin/login/otp?lang=en`,  // OTP login endpoint
         {
             _token: csrfToken,
-            email: EMAIL,
-            password: PASSWORD
+            username: USERNAME,
+            password: PASSWORD,
+            captcha_value: CAPTCHA_VALUE,
+            captcha_token: CAPTCHA_TOKEN,
+            otp: OTP
         },
         {
             headers: {
@@ -127,7 +159,7 @@ export default function () {
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
                 'User-Agent': randomUserAgent,
                 'Accept-Language': 'en-US,en;q=0.9',
-                'Referer': `${BASE_URL}admin/login`,
+                'Referer': `${BASE_URL}/`,
             },
             redirects: 5,
             timeout: '30s',
