@@ -144,7 +144,7 @@ export default function () {
 
     // Step 2: Submit login with config default credentials
     const loginRes = http.post(
-        `${BASE_URL}/api/v1/admin/login/otp?lang=en`,  // OTP login endpoint
+        `${BASE_URL}/api/v1/admin/login/otp?lang=bn`,  // OTP login endpoint
         {
             _token: csrfToken,
             username: USERNAME,
