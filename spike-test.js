@@ -111,6 +111,7 @@ export default function () {
     // ── Step 2: POST Login — OTP endpoint ────────────────────────────────────
     const loginRes = http.post(
         `${BASE_URL}/api/v1/admin/login/otp?lang=bn`,  // OTP login endpoint
+        // `${BASE_URL}/login`,  // OTP login endpoint
         {
             _token:        csrfToken,
             username:      USERNAME,

@@ -5,39 +5,38 @@
       <stringProp name="TestPlan.comments">Spike Test — mirrors spike-test.js.
 Stages: 30s→100 (baseline) | 30s→8000 (sudden spike) | 1m→8000 (hold) | 30s→100 (recover).
 GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% | http p90&lt;5s / p95&lt;6s.</stringProp>
-      <boolProp name="TestPlan.functional_mode">false</boolProp>
-      <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
       <boolProp name="TestPlan.serialize_threadgroups">true</boolProp>
+      <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
       <elementProp name="TestPlan.user_defined_variables" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" testname="User Defined Variables">
         <collectionProp name="Arguments.arguments">
           <elementProp name="BASE_URL" elementType="Argument">
             <stringProp name="Argument.name">BASE_URL</stringProp>
-            <stringProp name="Argument.value">api.bhata.gov.bd</stringProp>
+            <stringProp name="Argument.value">static-api.bhata.gov.bd</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="USERNAME" elementType="Argument">
             <stringProp name="Argument.name">USERNAME</stringProp>
-            <stringProp name="Argument.value">admin</stringProp>
+            <stringProp name="Argument.value">ibcs-qa-super</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="PASSWORD" elementType="Argument">
             <stringProp name="Argument.name">PASSWORD</stringProp>
-            <stringProp name="Argument.value">admin</stringProp>
+            <stringProp name="Argument.value">Password#4</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="CAPTCHA_VALUE" elementType="Argument">
             <stringProp name="Argument.name">CAPTCHA_VALUE</stringProp>
-            <stringProp name="Argument.value">12345</stringProp>
+            <stringProp name="Argument.value">31</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="CAPTCHA_TOKEN" elementType="Argument">
             <stringProp name="Argument.name">CAPTCHA_TOKEN</stringProp>
-            <stringProp name="Argument.value">captcha_token_1</stringProp>
+            <stringProp name="Argument.value">$2y$12$WnVi/8BNy4WjmgXtdPnGUeg4UrfSHPqWMxKvx88aOVD9can3HNO42</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="OTP" elementType="Argument">
             <stringProp name="Argument.name">OTP</stringProp>
-            <stringProp name="Argument.value">123456</stringProp>
+            <stringProp name="Argument.value">682347</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="P95_LOGIN_MS" elementType="Argument">
@@ -157,7 +156,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
           <stringProp name="ConstantTimer.delay">1000</stringProp>
         </ConstantTimer>
         <hashTree/>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Step 2 - POST Login OTP" enabled="true">
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Step 2 - POST Login OTP">
           <intProp name="HTTPSampler.connect_timeout">30000</intProp>
           <intProp name="HTTPSampler.response_timeout">30000</intProp>
           <stringProp name="HTTPSampler.domain">${BASE_URL}</stringProp>
@@ -272,7 +271,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
           <stringProp name="ConstantTimer.delay">1000</stringProp>
         </ConstantTimer>
         <hashTree/>
-        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report (p95)">
+        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report (p95)" enabled="true">
           <boolProp name="ResultCollector.error_logging">false</boolProp>
           <objProp>
             <name>saveConfig</name>
@@ -311,7 +310,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
         </ResultCollector>
         <hashTree/>
       </hashTree>
-      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Stage 2 - Sudden Spike (30s → 8000 VUs)" enabled="true">
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Stage 2 - Sudden Spike (30s → 8000 VUs)">
         <intProp name="ThreadGroup.num_threads">8000</intProp>
         <intProp name="ThreadGroup.ramp_time">30</intProp>
         <longProp name="ThreadGroup.duration">30</longProp>
@@ -550,7 +549,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
         </ResultCollector>
         <hashTree/>
       </hashTree>
-      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Stage 3 - Hold at Spike (1m → 8000 VUs)" enabled="true">
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Stage 3 - Hold at Spike (1m → 8000 VUs)">
         <intProp name="ThreadGroup.num_threads">8000</intProp>
         <intProp name="ThreadGroup.ramp_time">60</intProp>
         <longProp name="ThreadGroup.duration">60</longProp>
@@ -779,7 +778,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
         </ResultCollector>
         <hashTree/>
       </hashTree>
-      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Stage 4 - Recovery (30s → 100 VUs)" enabled="true">
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Stage 4 - Recovery (30s → 100 VUs)">
         <intProp name="ThreadGroup.num_threads">100</intProp>
         <intProp name="ThreadGroup.ramp_time">30</intProp>
         <longProp name="ThreadGroup.duration">30</longProp>

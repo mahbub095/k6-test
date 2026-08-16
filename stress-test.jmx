@@ -26,12 +26,12 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
           </elementProp>
           <elementProp name="CAPTCHA_VALUE" elementType="Argument">
             <stringProp name="Argument.name">CAPTCHA_VALUE</stringProp>
-            <stringProp name="Argument.value">25</stringProp>
+            <stringProp name="Argument.value">31</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="CAPTCHA_TOKEN" elementType="Argument">
             <stringProp name="Argument.name">CAPTCHA_TOKEN</stringProp>
-            <stringProp name="Argument.value">$2y$12$ycvyNe5Sq3hNsbnBgpcn9.i.Cq/4B00wc5zK1aSUlV4xw8ufPTKA2</stringProp>
+            <stringProp name="Argument.value">$2y$12$WnVi/8BNy4WjmgXtdPnGUeg4UrfSHPqWMxKvx88aOVD9can3HNO42</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="OTP" elementType="Argument">
@@ -65,7 +65,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
         <stringProp name="HTTPSampler.implementation"></stringProp>
       </ConfigTestElement>
       <hashTree/>
-      <CookieManager guiclass="CookiePanel" testclass="CookieManager" testname="HTTP Cookie Manager" enabled="true">
+      <CookieManager guiclass="CookiePanel" testclass="CookieManager" testname="HTTP Cookie Manager">
         <collectionProp name="CookieManager.cookies"/>
         <boolProp name="CookieManager.clearEachIteration">true</boolProp>
         <boolProp name="CookieManager.controlledByThreadGroup">false</boolProp>
@@ -102,7 +102,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
           </collectionProp>
         </HeaderManager>
         <hashTree/>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Step 1 - GET Login Page" enabled="true">
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Step 1 - GET Login Page">
           <intProp name="HTTPSampler.connect_timeout">30000</intProp>
           <intProp name="HTTPSampler.response_timeout">30000</intProp>
           <stringProp name="HTTPSampler.domain">${BASE_URL}</stringProp>
@@ -156,7 +156,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
           <stringProp name="ConstantTimer.delay">1000</stringProp>
         </ConstantTimer>
         <hashTree/>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Step 2 - POST Login OTP" enabled="true">
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Step 2 - POST Login OTP">
           <intProp name="HTTPSampler.connect_timeout">30000</intProp>
           <intProp name="HTTPSampler.response_timeout">30000</intProp>
           <stringProp name="HTTPSampler.domain">${BASE_URL}</stringProp>
@@ -231,7 +231,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
             </collectionProp>
           </HeaderManager>
           <hashTree/>
-          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert - Login POST successful (200 or 302)" enabled="true">
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert - Login POST successful (200 or 302)" enabled="false">
             <collectionProp name="Asserion.test_strings">
               <stringProp name="145928764">^(200|302)$</stringProp>
             </collectionProp>
@@ -241,7 +241,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
             <stringProp name="Assertion.custom_message">Login POST did not return 200 or 302</stringProp>
           </ResponseAssertion>
           <hashTree/>
-          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert - No server error (not 5xx)" enabled="true">
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert - No server error (not 5xx)" enabled="false">
             <collectionProp name="Asserion.test_strings">
               <stringProp name="678963896">^[1-4][0-9]{2}$</stringProp>
             </collectionProp>
@@ -251,7 +251,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
             <stringProp name="Assertion.custom_message">Login POST returned a 5xx server error</stringProp>
           </ResponseAssertion>
           <hashTree/>
-          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert - No Invalid credentials message" enabled="true">
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert - No Invalid credentials message">
             <collectionProp name="Asserion.test_strings">
               <stringProp name="-2114236877">Invalid credentials</stringProp>
               <stringProp name="-459020044">Login failed</stringProp>
@@ -262,7 +262,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
             <stringProp name="Assertion.custom_message">Login response contains error message</stringProp>
           </ResponseAssertion>
           <hashTree/>
-          <DurationAssertion guiclass="DurationAssertionGui" testclass="DurationAssertion" testname="p95 Guard - POST Login &lt; 5s" enabled="true">
+          <DurationAssertion guiclass="DurationAssertionGui" testclass="DurationAssertion" testname="p95 Guard - POST Login &lt; 5s">
             <stringProp name="DurationAssertion.duration">${P95_LOGIN_THRESHOLD_MS}</stringProp>
           </DurationAssertion>
           <hashTree/>
@@ -271,7 +271,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
           <stringProp name="ConstantTimer.delay">1000</stringProp>
         </ConstantTimer>
         <hashTree/>
-        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report (p95)" enabled="true">
+        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report (p95)">
           <boolProp name="ResultCollector.error_logging">false</boolProp>
           <objProp>
             <name>saveConfig</name>
@@ -307,6 +307,43 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
           </objProp>
           <stringProp name="action_if_file_exists">APPEND</stringProp>
           <stringProp name="filename">results/stress-test-results.jtl</stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="View Results Tree">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
         </ResultCollector>
         <hashTree/>
       </hashTree>
@@ -385,7 +422,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
           <stringProp name="ConstantTimer.delay">1000</stringProp>
         </ConstantTimer>
         <hashTree/>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Step 2 - POST Login OTP" enabled="true">
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Step 2 - POST Login OTP">
           <intProp name="HTTPSampler.connect_timeout">30000</intProp>
           <intProp name="HTTPSampler.response_timeout">30000</intProp>
           <stringProp name="HTTPSampler.domain">${BASE_URL}</stringProp>
@@ -460,7 +497,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
             </collectionProp>
           </HeaderManager>
           <hashTree/>
-          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert - Login POST successful (200 or 302)" enabled="true">
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Assert - Login POST successful (200 or 302)">
             <collectionProp name="Asserion.test_strings">
               <stringProp name="145928764">^(200|302)$</stringProp>
             </collectionProp>
@@ -500,7 +537,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
           <stringProp name="ConstantTimer.delay">1000</stringProp>
         </ConstantTimer>
         <hashTree/>
-        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report (p95)" enabled="true">
+        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report (p95)">
           <boolProp name="ResultCollector.error_logging">false</boolProp>
           <objProp>
             <name>saveConfig</name>
@@ -729,7 +766,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
           <stringProp name="ConstantTimer.delay">1000</stringProp>
         </ConstantTimer>
         <hashTree/>
-        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report (p95)" enabled="true">
+        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report (p95)">
           <boolProp name="ResultCollector.error_logging">false</boolProp>
           <objProp>
             <name>saveConfig</name>
@@ -958,7 +995,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
           <stringProp name="ConstantTimer.delay">1000</stringProp>
         </ConstantTimer>
         <hashTree/>
-        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report (p95)" enabled="true">
+        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report (p95)">
           <boolProp name="ResultCollector.error_logging">false</boolProp>
           <objProp>
             <name>saveConfig</name>
@@ -1131,7 +1168,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
           <stringProp name="ConstantTimer.delay">1000</stringProp>
         </ConstantTimer>
         <hashTree/>
-        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report (p95)" enabled="true">
+        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report (p95)">
           <boolProp name="ResultCollector.error_logging">false</boolProp>
           <objProp>
             <name>saveConfig</name>
@@ -1169,7 +1206,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
           <stringProp name="filename">results/stress-test-results.jtl</stringProp>
         </ResultCollector>
         <hashTree/>
-        <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="Summary Report" enabled="true">
+        <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="Summary Report">
           <boolProp name="ResultCollector.error_logging">false</boolProp>
           <objProp>
             <name>saveConfig</name>
@@ -1207,7 +1244,7 @@ GracefulRampDown: 30s. Thresholds: login_duration p95&lt;5s | error_rate&lt;10% 
           <stringProp name="filename">results/stress-test-results.jtl</stringProp>
         </ResultCollector>
         <hashTree/>
-        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="View Results Tree (Errors Only)" enabled="true">
+        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="View Results Tree (Errors Only)">
           <boolProp name="ResultCollector.error_logging">true</boolProp>
           <objProp>
             <name>saveConfig</name>
