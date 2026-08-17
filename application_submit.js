@@ -278,8 +278,9 @@ function runApplicationFlow() {
         requestCount.add(1);
 
         const ok = check(res, {
-            'GET page → 200': (r) => r.status === 200,
-            'GET page < 5s':  (r) => r.timings.duration < 5000,
+            'GET page → 200':      (r) => r.status === 200,
+            'GET page < 5s':       (r) => r.timings.duration < 5000,
+            'GET page not 429':    (r) => r.status !== 429,
         });
         if (!ok) errorRate.add(1);
     });
@@ -328,6 +329,7 @@ function runApplicationFlow() {
         const ok = check(res, {
             'GET captcha → 200':    (r) => r.status === 200,
             'GET captcha has body': (r) => r.body && r.body.length > 0,
+            'GET captcha not 429':  (r) => r.status !== 429,
         });
 
         if (!ok) { errorRate.add(1); return; }
@@ -496,6 +498,7 @@ function runApplicationFlow() {
         const ok = check(res, {
             'POST registration → 200 or 201': (r) => r.status === 200 || r.status === 201,
             'POST registration not 422':      (r) => r.status !== 422,
+            'POST registration not 429':      (r) => r.status !== 429,
             'POST registration not 5xx':      (r) => r.status < 500,
             'POST registration < 10s':        (r) => r.timings.duration < 10000,
         });
@@ -506,7 +509,7 @@ function runApplicationFlow() {
             `${res.timings.duration}ms | captcha: ${captchaToken} | BRS: ${applicant.verification_number}`
         );
 
-        if (res.status === 422 || res.status >= 500) {
+        if (res.status === 422 || res.status === 429 || res.status >= 500) {
             console.error(`VU ${__VU} | FAILED body: ${res.body}`);
         }
     });
