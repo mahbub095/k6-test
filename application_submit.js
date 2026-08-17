@@ -148,10 +148,10 @@ const errorRate             = new Rate('error_rate');
  */
 const RAMP_UP_STAGES = [
     { duration: '10s', target: 1  },
-    // { duration: '1m', target: 2000 },
-    // { duration: '1m', target: 4000 },
-    // { duration: '5m', target: 4000 },
-    // { duration: '2m', target: 200  },
+    { duration: '1m', target: 2000 },
+    { duration: '1m', target: 4000 },
+    { duration: '5m', target: 4000 },
+    { duration: '2m', target: 200  },
 ];
 
 /**
@@ -166,13 +166,13 @@ const RAMP_UP_STAGES = [
  *   hold 5000 → 8000 over 5m  — peak stress
  *   8000 → 0   over 2 min     — ramp-down / recovery check
  */
-// const STRESS_STAGES = [
-//     { duration: '1m', target: 500  },
-//     { duration: '2m', target: 2000 },
-//     { duration: '3m', target: 5000 },
-//     { duration: '5m', target: 8000 },
-//     { duration: '2m', target: 0    },
-// ];
+const STRESS_STAGES = [
+    { duration: '1m', target: 500  },
+    { duration: '2m', target: 2000 },
+    { duration: '3m', target: 5000 },
+    { duration: '5m', target: 8000 },
+    { duration: '2m', target: 0    },
+];
 
 // ── Thresholds (shared) ───────────────────────────────────────────────────────
 const SHARED_THRESHOLDS = {
@@ -266,7 +266,7 @@ function buildApplicant() {
 function runApplicationFlow() {
     const applicant = buildApplicant();
 
-    console.log(`VU ${__VU} [${TEST_FUNC}] → NID: ${applicant.verification_number} | acc: ${applicant.account_number}`);
+    console.log(`VU ${__VU} [${TEST_FUNC}] → BRS: ${applicant.verification_number} | acc: ${applicant.account_number}`);
 
     // ── Step 1: GET Online Application Page ──────────────────────────────────
     group('Step 1 - GET Online Application Page', () => {
@@ -503,7 +503,7 @@ function runApplicationFlow() {
 
         console.log(
             `VU ${__VU} [${TEST_FUNC}] | registration → HTTP ${res.status} | ` +
-            `${res.timings.duration}ms | captcha: ${captchaToken} | NID: ${applicant.verification_number}`
+            `${res.timings.duration}ms | captcha: ${captchaToken} | BRS: ${applicant.verification_number}`
         );
 
         if (res.status === 422 || res.status >= 500) {
