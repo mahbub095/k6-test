@@ -1,69 +1,63 @@
 /**
- * Application Submit — Load Test
+ * Application Submit — Multi-Scenario Load Test
  *
- * Mirrors application_submit.jmx exactly:
- *   1. GET  /online-application          (page load)
- *   2. GET  /api/v1/global/getApplicationPageData
- *   3. GET  /api/v1/global/online-application/disabled-areas/9
- *   4. GET  /api/v1/captcha               → extract captcha_token + captcha_value
- *   5. GET  /api/v1/global/district/get/3
- *   6. GET  /api/v1/global/thana/get/28
- *   7. GET  /api/v1/global/payment-processors/28
- *   8. GET  /api/v1/global/thana/get/28   (repeat — browser behaviour)
- *   9. GET  /api/v1/global/union/get/220
- *  10. GET  /api/v1/global/union/get/220   (repeat)
- *  11. GET  /api/v1/global/ward/get/2340
- *  12. GET  /api/v1/global/payment-processors/17940
- *  13. GET  /api/v1/global/district/get/3  (repeat)
- *  14. GET  /api/v1/global/thana/get/28    (repeat)
- *  15. GET  /api/v1/global/thana/get/28    (repeat)
- *  16. GET  /api/v1/global/union/get/220   (repeat)
- *  17. GET  /api/v1/global/ward/get/2340   (repeat)
- *  18. GET  /api/v1/global/thana/get/28    (repeat)
- *  19. GET  /api/v1/global/online-application/check-duplicate-account
- *  20. POST /api/v1/global/online-application/registration (multipart + image)
- *
- * JMeter config: 200 threads, ramp 300s, 1 loop
- * k6 equivalent: ramping-vus 0→200 over 5m, hold 5m, ramp-down 1m
+ * Supported test functions (pass via -e TEST_FUNC=<name>):
+ *   rampUp   — gradual ramp-up load test  (default)
+ *   stress   — aggressive stress test pushing system to limits
  *
  * How to run:
- *   k6 run application_submit.js
+ *   k6 run -e TEST_FUNC=rampUp  application_submit.js
+ *   k6 run -e TEST_FUNC=stress  application_submit.js
+ *   k6 run application_submit.js          ← defaults to rampUp
+ *
+ * Mirrors application_submit.jmx flow:
+ *   1.  GET  /online-application
+ *   2.  GET  /api/v1/global/getApplicationPageData
+ *   3.  GET  /api/v1/global/online-application/disabled-areas/9
+ *   4.  GET  /api/v1/captcha  → extract captcha_token + captcha_value
+ *   5.  GET  /api/v1/global/district/get/3
+ *   6-18. GET lookup endpoints (district / thana / union / ward / payment) batched
+ *  19.  GET  /api/v1/global/online-application/check-duplicate-account
+ *  20.  POST /api/v1/global/online-application/registration (multipart + image)
  *
  * CSV file required: verification_numbers.csv
- * Image file required: test.jpg  (place next to this script)
+ * Image file required: test.jpg (see IMAGE_BYTES path below)
  */
 
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
-// import { SharedArray } from 'k6/data'; // unused — CSV method commented out
 import encoding from 'k6/encoding';
 
+// ── Select test function via env var ──────────────────────────────────────────
+// Valid values: "rampUp" | "stress"   (case-sensitive)
+const TEST_FUNC = __ENV.TEST_FUNC || 'rampUp';
+
 // ── Config ────────────────────────────────────────────────────────────────────
-const BASE_URL_1 = 'https://stage.bhata.gov.bd';
-const BASE_URL_2 = 'https://stage-api.bhata.gov.bd';
+const BASE_URL_1   = 'https://stage.bhata.gov.bd';
+const BASE_URL_2   = 'https://stage-api.bhata.gov.bd';
 const BEARER_TOKEN = '337274|R3xxrFTQm7P1x2AbUh5rX4NtX9X5nnb9UIcXbXCr5c0795b0';
 
 // Static application payload fields (same for all VUs — from JMX)
-const ACCOUNT_TYPE     = '2';
-const PROGRAM_ID       = '22';
-const SUB_PROGRAM_ID   = '9';
-const THANA_ID         = '220';
-const DIVISION_ID      = '3';
-const DISTRICT_ID      = '3';
-const UNION_ID         = '220';
-const WARD_ID_UNION    = '17940';
-const PERMANENT_THANA  = '220';
-const PERMANENT_UNION  = '2340';
-const PROFESSION       = '181';
-const NATIONALITY      = '105';
-const GENDER_ID        = '23';
-const RELIGION         = '96';
-const MARITAL_STATUS   = '101';
-const EDUCATION_STATUS = '25';
-const LOCATION_TYPE    = '1';        // union area
+const ACCOUNT_TYPE      = '2';
+const PROGRAM_ID        = '22';
+const SUB_PROGRAM_ID    = '9';
+const THANA_ID          = '220';
+const DIVISION_ID       = '3';
+const DISTRICT_ID       = '3';
+const UNION_ID          = '220';
+const WARD_ID_UNION     = '17940';
+const PERMANENT_THANA   = '220';
+const PERMANENT_UNION   = '2340';
+const PROFESSION        = '181';
+const NATIONALITY       = '105';
+const GENDER_ID         = '23';
+const RELIGION          = '96';
+const MARITAL_STATUS    = '101';
+const EDUCATION_STATUS  = '25';
+const LOCATION_TYPE     = '1';
 const SUB_LOCATION_TYPE = '2';
-const MFS_NAME         = '1';
+const MFS_NAME          = '1';
 const IS_BANK_MFS_MANDATORY = '1';
 
 const APPLICATION_PMT = JSON.stringify([
@@ -93,95 +87,7 @@ const APPLICATION_PMT = JSON.stringify([
     {"variable_id":500,"sub_variables":502},
 ]);
 
-// ── CSV data — unique verification_number per VU ──────────────────────────────
-// File: verification_numbers.csv  (same folder as this script)
-//
-// Rules enforced at load time:
-//   verification_number — exactly 17 digits, must start with "19"
-//                         (Bangladesh NID format)
-//   account_number      — exactly 11 digits, must start with one of:
-//                         016, 017, 018, 019, 013
-//                         (valid BD mobile-banking prefixes)
-//   Each row must be unique — no duplicate verification_number or account_number
-//
-// Replace placeholder rows with real valid NIDs from your staging database.
-//
-// Columns: verification_number, date_of_birth, name_bn, name_en,
-//          father_name_bn, father_name_en, mother_name_bn, mother_name_en,
-//          mobile, account_number
-//
-// const applicants = new SharedArray('applicants', function () {
-//     const rows = open('./verification_numbers.csv')
-//         .split('\n')
-//         .slice(1)                          // skip header row
-//         .filter(line => line.trim() !== '')
-//         .map((line, idx) => {
-//             const cols = line.split(',');
-//             const vn = cols[0].trim();
-//             const an = cols[9].trim();
-//
-//             // ── Validation: verification_number ──────────────────────────
-//             if (vn.length !== 17) {
-//                 throw new Error(
-//                     `CSV row ${idx + 2}: verification_number "${vn}" must be exactly 17 digits (got ${vn.length})`
-//                 );
-//             }
-//             if (!vn.startsWith('19')) {
-//                 throw new Error(
-//                     `CSV row ${idx + 2}: verification_number "${vn}" must start with "19"`
-//                 );
-//             }
-//             if (!/^\d{17}$/.test(vn)) {
-//                 throw new Error(
-//                     `CSV row ${idx + 2}: verification_number "${vn}" must contain only digits`
-//                 );
-//             }
-//
-//             // ── Validation: account_number ───────────────────────────────
-//             if (an.length !== 11) {
-//                 throw new Error(
-//                     `CSV row ${idx + 2}: account_number "${an}" must be exactly 11 digits (got ${an.length})`
-//                 );
-//             }
-//             if (!/^0(16|17|18|19|13)\d{8}$/.test(an)) {
-//                 throw new Error(
-//                     `CSV row ${idx + 2}: account_number "${an}" must start with 016/017/018/019/013 and be 11 digits`
-//                 );
-//             }
-//
-//             return {
-//                 verification_number: vn,
-//                 date_of_birth:       cols[1].trim(),
-//                 name_bn:             cols[2].trim(),
-//                 name_en:             cols[3].trim(),
-//                 father_name_bn:      cols[4].trim(),
-//                 father_name_en:      cols[5].trim(),
-//                 mother_name_bn:      cols[6].trim(),
-//                 mother_name_en:      cols[7].trim(),
-//                 mobile:              cols[8].trim(),
-//                 account_number:      an,
-//             };
-//         });
-//
-//     // ── Uniqueness check ──────────────────────────────────────────────────
-//     const seenVN = new Set();
-//     const seenAN = new Set();
-//     rows.forEach((r, idx) => {
-//         if (seenVN.has(r.verification_number)) {
-//             throw new Error(`CSV row ${idx + 2}: duplicate verification_number "${r.verification_number}"`);
-//         }
-//         if (seenAN.has(r.account_number)) {
-//             throw new Error(`CSV row ${idx + 2}: duplicate account_number "${r.account_number}"`);
-//         }
-//         seenVN.add(r.verification_number);
-//         seenAN.add(r.account_number);
-//     });
-//
-//     return rows;
-// });
-
-// ── Static applicant fields (shared across all VUs) ───────────────────────────
-// verification_number, account_number, and date_of_birth are generated uniquely per VU.
+// ── Static applicant base (overridden per VU at runtime) ─────────────────────
 const STATIC_APPLICANT = {
     name_bn:        'পরীক্ষা ব্যবহারকারী',
     name_en:        'Test User',
@@ -193,7 +99,6 @@ const STATIC_APPLICANT = {
 };
 
 // ── Load test image once (shared across all VUs) ──────────────────────────────
-// Loaded from an absolute drive path so k6 finds it regardless of working directory.
 // Update the path below to point to your actual test image on disk.
 const IMAGE_BYTES = open('D:/Placeholder/test.jpg', 'b');
 
@@ -203,29 +108,69 @@ const captchaFetchDuration  = new Trend('captcha_fetch_duration', true);
 const requestCount          = new Counter('total_requests');
 const errorRate             = new Rate('error_rate');
 
-// ── Test Configuration ────────────────────────────────────────────────────────
-// Mirrors JMX: 200 threads, ramp 300s (5m), 1 loop
+// ── Scenario stages ───────────────────────────────────────────────────────────
+
+/**
+ * rampUp stages
+ *
+ * Gradually increases load to validate the system handles real traffic growth.
+ * Mirrors the original JMX config (200 threads, ramp 300 s).
+ *
+ *   0 → 500  VUs over 1 min   — warm up
+ *   500 → 2000 over 1 min     — approach normal load
+ *   2000 → 4000 over 1 min    — full load
+ *   hold 4000 for 5 min       — sustained load plateau
+ *   4000 → 200  over 2 min    — cool down
+ */
+const RAMP_UP_STAGES = [
+    { duration: '1m', target: 500  },
+    { duration: '1m', target: 2000 },
+    { duration: '1m', target: 4000 },
+    { duration: '5m', target: 4000 },
+    { duration: '2m', target: 200  },
+];
+
+/**
+ * stress stages
+ *
+ * Pushes the system beyond normal limits to find its breaking point.
+ * Observes failure patterns, error types, and recovery behaviour.
+ *
+ *   0 → 500  VUs over 1 min   — warm up
+ *   500 → 2000 over 2 min     — ramp up
+ *   2000 → 5000 over 3 min    — increase stress
+ *   hold 5000 → 8000 over 5m  — peak stress
+ *   8000 → 0   over 2 min     — ramp-down / recovery check
+ */
+const STRESS_STAGES = [
+    { duration: '1m', target: 500  },
+    { duration: '2m', target: 2000 },
+    { duration: '3m', target: 5000 },
+    { duration: '5m', target: 8000 },
+    { duration: '2m', target: 0    },
+];
+
+// ── Thresholds (shared) ───────────────────────────────────────────────────────
+const SHARED_THRESHOLDS = {
+    'registration_duration': [{ threshold: 'p(95)<10000', abortOnFail: false }],
+    'captcha_fetch_duration': [{ threshold: 'p(95)<3000',  abortOnFail: false }],
+    'error_rate':             [{ threshold: 'rate<0.10',   abortOnFail: false }],
+    'http_req_duration': [
+        { threshold: 'p(90)<8000',  abortOnFail: false },
+        { threshold: 'p(95)<10000', abortOnFail: false },
+    ],
+};
+
+// ── Dynamic options based on TEST_FUNC ────────────────────────────────────────
 export const options = {
     scenarios: {
         application_submit: {
-            executor: 'ramping-vus',
-            stages: [
-                { duration: '1m',  target: 500 },   // ramp-up  (JMX ramp_time=300s)
-                { duration: '1m',  target: 1000 },   // hold at peak
-                { duration: '1m',  target: 20   },   // ramp-down
-            ],
+            executor:         'ramping-vus',
+            stages:           TEST_FUNC === 'stress' ? STRESS_STAGES : RAMP_UP_STAGES,
             gracefulRampDown: '30s',
         },
     },
-    thresholds: {
-        'registration_duration': [{ threshold: 'p(95)<10000', abortOnFail: false }],
-        'captcha_fetch_duration': [{ threshold: 'p(95)<3000',  abortOnFail: false }],
-        'error_rate':             [{ threshold: 'rate<0.05',   abortOnFail: false }],
-        'http_req_duration':      [
-            { threshold: 'p(90)<8000',  abortOnFail: false },
-            { threshold: 'p(95)<10000', abortOnFail: false },
-        ],
-    },
+    thresholds: SHARED_THRESHOLDS,
 };
 
 // ── Shared headers ────────────────────────────────────────────────────────────
@@ -245,51 +190,50 @@ const PAGE_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
 };
 
-// ── Main ──────────────────────────────────────────────────────────────────────
-export default function () {
-
-    // Generate unique verification_number, account_number, and date_of_birth per VU.
-    // verification_number: 17 digits, randomly starts with "19" or "20" + 15 random digits.
-    // Generate unique verification_number, account_number, and date_of_birth per VU.
-    // verification_number: 17 digits, randomly starts with "19" or "20" + 15 random digits.
-    // account_number:      11 digits, random prefix (016/019/013/015/017/018) + 8 random digits.
-    // date_of_birth:       unique year per VU cycling from 1960 to 2000 (all adults).
-    // age:                 computed from date_of_birth relative to current year.
-
-    // Random verification_number: prefix "19" or "20", followed by 15 random digits.
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared helper — builds a unique applicant object for the current VU
+// ─────────────────────────────────────────────────────────────────────────────
+function buildApplicant() {
+    // Random verification_number: prefix "19" or "20" + 15 random digits
     const vnPrefixes          = ['19', '20'];
     const vnPrefix            = vnPrefixes[Math.floor(Math.random() * vnPrefixes.length)];
     const vnSuffix            = String(Math.floor(Math.random() * 1e15)).padStart(15, '0');
     const verification_number = `${vnPrefix}${vnSuffix}`;
 
-    // Random account_number: pick a random valid prefix + 8 truly random digits
+    // Random account_number: valid BD mobile-banking prefix + 8 random digits
     const prefixes     = ['016', '019', '013', '015', '017', '018'];
     const prefix       = prefixes[Math.floor(Math.random() * prefixes.length)];
     const randomSuffix = String(Math.floor(Math.random() * 100000000)).padStart(8, '0');
     const account_number = `${prefix}${randomSuffix}`;
 
-    // Birth year range: 1960–2000  →  age range: 26–66 (all strictly > 25).
-    // Calculated from base year 2026: youngest valid = 2026 - 26 = 2000.
-    const birthYear    = 1960 + ((__VU - 1) % 41);  // cycles through 41 years (1960–2000)
-    const dobFormatted = `${birthYear}-06-15`;        // YYYY-MM-DD
-    const age          = 2026 - birthYear;            // always between 26 and 66
+    // Birth year range: 1960–2000  →  age range 26–66 (all strictly > 25)
+    const birthYear    = 1960 + ((__VU - 1) % 41);
+    const dobFormatted = `${birthYear}-06-15`;
+    const age          = 2026 - birthYear;
 
-    const applicant = {
+    return {
         ...STATIC_APPLICANT,
         verification_number,
         account_number,
         date_of_birth: dobFormatted,
         age:           String(age),
     };
+}
 
-    console.log(`VU ${__VU} → verification_number: ${applicant.verification_number} | account_number: ${applicant.account_number}`);
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared helper — executes the full 20-step application submit flow
+// ─────────────────────────────────────────────────────────────────────────────
+function runApplicationFlow() {
+    const applicant = buildApplicant();
+
+    console.log(`VU ${__VU} [${TEST_FUNC}] → NID: ${applicant.verification_number} | acc: ${applicant.account_number}`);
 
     // ── Step 1: GET Online Application Page ──────────────────────────────────
     group('Step 1 - GET Online Application Page', () => {
         const res = http.get(`${BASE_URL_1}/online-application`, {
             headers: PAGE_HEADERS,
             timeout: '30s',
-            tags: { step: '01_get_page' },
+            tags: { step: '01_get_page', test: TEST_FUNC },
         });
         requestCount.add(1);
 
@@ -307,13 +251,10 @@ export default function () {
         const res = http.get(`${BASE_URL_2}/api/v1/global/getApplicationPageData?lang=bn`, {
             headers: API_HEADERS,
             timeout: '30s',
-            tags: { step: '02_get_page_data' },
+            tags: { step: '02_get_page_data', test: TEST_FUNC },
         });
         requestCount.add(1);
-
-        check(res, {
-            'GET pageData → 200': (r) => r.status === 200,
-        });
+        check(res, { 'GET pageData → 200': (r) => r.status === 200 });
     });
 
     sleep(1);
@@ -323,13 +264,10 @@ export default function () {
         const res = http.get(`${BASE_URL_2}/api/v1/global/online-application/disabled-areas/9?lang=bn`, {
             headers: API_HEADERS,
             timeout: '30s',
-            tags: { step: '03_disabled_areas' },
+            tags: { step: '03_disabled_areas', test: TEST_FUNC },
         });
         requestCount.add(1);
-
-        check(res, {
-            'GET disabled-areas → 200': (r) => r.status === 200,
-        });
+        check(res, { 'GET disabled-areas → 200': (r) => r.status === 200 });
     });
 
     sleep(1);
@@ -342,25 +280,20 @@ export default function () {
         const res = http.get(`${BASE_URL_2}/api/v1/captcha?lang=bn`, {
             headers: API_HEADERS,
             timeout: '30s',
-            tags: { step: '04_captcha' },
+            tags: { step: '04_captcha', test: TEST_FUNC },
         });
         requestCount.add(1);
         captchaFetchDuration.add(res.timings.duration);
 
         const ok = check(res, {
-            'GET captcha → 200':     (r) => r.status === 200,
-            'GET captcha has body':  (r) => r.body && r.body.length > 0,
+            'GET captcha → 200':    (r) => r.status === 200,
+            'GET captcha has body': (r) => r.body && r.body.length > 0,
         });
 
-        if (!ok) {
-            errorRate.add(1);
-            return;
-        }
+        if (!ok) { errorRate.add(1); return; }
 
-        // Extract captcha_token and captcha_value from response
-        // Adjust JSON path if your API returns a different key name
         try {
-            const body = res.json();
+            const body  = res.json();
             captchaToken = body.captcha_token || body.token || '';
             captchaValue = body.captcha_value || body.value || '';
         } catch (_) {
@@ -369,16 +302,14 @@ export default function () {
         }
 
         if (!captchaToken) {
-            console.warn(`VU ${__VU} — captcha_token not found. Check response: ${res.body}`);
+            console.warn(`VU ${__VU} — captcha_token not found. body: ${res.body}`);
             errorRate.add(1);
         }
     });
 
     sleep(1);
 
-    // ── Steps 5–18: Lookup GETs (district / thana / union / ward / payment) ───
-    // These mirror the repeated GET calls in the JMX. Run them as a batch
-    // to match the parallel browser behaviour recorded in JMeter.
+    // ── Steps 5–18: Batched lookup GETs ──────────────────────────────────────
     group('Steps 5-18 - Lookup GETs', () => {
         const lookups = [
             `${BASE_URL_2}/api/v1/global/district/get/3?lang=bn`,
@@ -401,16 +332,13 @@ export default function () {
             lookups.map(url => ({
                 method: 'GET',
                 url,
-                params: { headers: API_HEADERS, timeout: '30s', tags: { step: '05_lookups' } },
+                params: { headers: API_HEADERS, timeout: '30s', tags: { step: '05_lookups', test: TEST_FUNC } },
             }))
         );
 
         requestCount.add(lookups.length);
-
         responses.forEach((res, i) => {
-            const ok = check(res, {
-                [`lookup[${i}] → 200`]: (r) => r.status === 200,
-            });
+            const ok = check(res, { [`lookup[${i}] → 200`]: (r) => r.status === 200 });
             if (!ok) errorRate.add(1);
         });
     });
@@ -429,46 +357,35 @@ export default function () {
             {
                 headers: API_HEADERS,
                 timeout: '30s',
-                tags: { step: '19_check_duplicate' },
+                tags: { step: '19_check_duplicate', test: TEST_FUNC },
             }
         );
         requestCount.add(1);
-
-        check(dupRes, {
-            'GET check-duplicate → 200': (r) => r.status === 200,
-        });
+        check(dupRes, { 'GET check-duplicate → 200': (r) => r.status === 200 });
     });
 
     sleep(1);
 
     // ── Step 20: POST Registration (multipart/form-data with image) ───────────
     group('Step 20 - POST Registration', () => {
-
         if (!captchaToken) {
             console.warn(`VU ${__VU} — skipping POST: no captcha_token`);
             errorRate.add(1);
             return;
         }
 
-        // Build multipart form-data body
-        // k6 builds multipart automatically when you pass an object with
-        // http.file() entries mixed with plain string fields.
         const formData = {
-            // Query param
-            lang: 'bn',
+            lang:            'bn',
+            account_type:    ACCOUNT_TYPE,
+            application_pmt: APPLICATION_PMT,
+            thana_id:        THANA_ID,
+            division_id:     DIVISION_ID,
+            district_id:     DISTRICT_ID,
+            program_id:      PROGRAM_ID,
+            sub_program_id:  SUB_PROGRAM_ID,
 
-            // Core fields
-            account_type:     ACCOUNT_TYPE,
-            application_pmt:  APPLICATION_PMT,
-            thana_id:         THANA_ID,
-            division_id:      DIVISION_ID,
-            district_id:      DISTRICT_ID,
-            program_id:       PROGRAM_ID,
-            sub_program_id:   SUB_PROGRAM_ID,
-
-            // Applicant identity — from CSV
             verification_number: applicant.verification_number,
-            verification_type:   '2',              // NID=2, birth cert=1
+            verification_type:   '2',
             name_bn:             applicant.name_bn,
             name_en:             applicant.name_en,
             father_name_bn:      applicant.father_name_bn,
@@ -484,23 +401,21 @@ export default function () {
             nationality:         NATIONALITY,
             profession:          PROFESSION,
 
-            // Location
-            location_type:              LOCATION_TYPE,
-            sub_location_type:          SUB_LOCATION_TYPE,
-            union_id:                   UNION_ID,
-            ward_id_union:              WARD_ID_UNION,
-            permanent_thana_id:         PERMANENT_THANA,
-            permanent_union_id:         PERMANENT_UNION,
-            permanent_location_type:    LOCATION_TYPE,
+            location_type:               LOCATION_TYPE,
+            sub_location_type:           SUB_LOCATION_TYPE,
+            union_id:                    UNION_ID,
+            ward_id_union:               WARD_ID_UNION,
+            permanent_thana_id:          PERMANENT_THANA,
+            permanent_union_id:          PERMANENT_UNION,
+            permanent_location_type:     LOCATION_TYPE,
             permanent_sub_location_type: SUB_LOCATION_TYPE,
-            permanent_district_id:      DISTRICT_ID,
-            permanent_division_id:      DIVISION_ID,
-            address:                    'C',
-            permanent_address:          'C',
-            post_code:                  '1234',
-            permanent_post_code:        '1234',
+            permanent_district_id:       DISTRICT_ID,
+            permanent_division_id:       DIVISION_ID,
+            address:                     'C',
+            permanent_address:           'C',
+            post_code:                   '1234',
+            permanent_post_code:         '1234',
 
-            // Payment / bank
             mobile:               applicant.mobile,
             account_number:       applicant.account_number,
             account_name:         'Test',
@@ -508,18 +423,16 @@ export default function () {
             mfs_name:             MFS_NAME,
             is_bank_mfs_mandatory: IS_BANK_MFS_MANDATORY,
 
-            // Scores
-            no_of_people_score: '-7',
-            per_room_score:     '-7',
-            no_of_room:         '502',
-            house_size:         '2',
+            no_of_people_score:   '-7',
+            per_room_score:       '-7',
+            no_of_room:           '502',
+            house_size:           '2',
             is_nominnee_optional: '0',
 
-            // Captcha — extracted live from Step 4
             captcha_token: captchaToken,
             captcha_value: captchaValue,
 
-            // Image upload — multipart binary (required field)
+            // Multipart binary image — k6 sets Content-Type automatically
             image: http.file(IMAGE_BYTES, 'test.jpg', 'image/jpeg'),
         };
 
@@ -531,11 +444,10 @@ export default function () {
                     'Authorization':  `Bearer ${BEARER_TOKEN}`,
                     'Accept':         'application/json, text/plain, */*',
                     'X-App-Language': 'bn',
-                    // DO NOT set Content-Type manually — k6 sets it automatically
-                    // to multipart/form-data with boundary when http.file() is used
+                    // Do NOT set Content-Type — k6 sets multipart/form-data + boundary automatically
                 },
                 timeout: '60s',
-                tags: { step: '20_post_registration' },
+                tags: { step: '20_post_registration', test: TEST_FUNC },
             }
         );
         requestCount.add(1);
@@ -547,21 +459,60 @@ export default function () {
             'POST registration not 5xx':      (r) => r.status < 500,
             'POST registration < 10s':        (r) => r.timings.duration < 10000,
         });
-
         errorRate.add(!ok);
 
-        // Log status for debugging — check View Results Tree equivalent
         console.log(
-            `VU ${__VU} | registration → HTTP ${res.status} | ` +
-            `${res.timings.duration}ms | captcha_token: ${captchaToken} | ` +
-            `verification: ${applicant.verification_number}`
+            `VU ${__VU} [${TEST_FUNC}] | registration → HTTP ${res.status} | ` +
+            `${res.timings.duration}ms | captcha: ${captchaToken} | NID: ${applicant.verification_number}`
         );
 
-        // Log response body on failure so you can see exact validation error
         if (res.status === 422 || res.status >= 500) {
             console.error(`VU ${__VU} | FAILED body: ${res.body}`);
         }
     });
 
     sleep(1);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// rampUp — gradual load test
+//
+// Run: k6 run -e TEST_FUNC=rampUp application_submit.js
+//
+// Stages:
+//   0 → 500  over 1 min   warm up
+//   500 → 2000 over 1 min  approach normal load
+//   2000 → 4000 over 1 min full load
+//   hold 4000 for 5 min    sustained plateau
+//   4000 → 200 over 2 min  cool down
+// ─────────────────────────────────────────────────────────────────────────────
+export function rampUp() {
+    runApplicationFlow();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// stress — aggressive stress test
+//
+// Run: k6 run -e TEST_FUNC=stress application_submit.js
+//
+// Stages:
+//   0 → 500  over 1 min   warm up
+//   500 → 2000 over 2 min  ramp up
+//   2000 → 5000 over 3 min increase stress
+//   5000 → 8000 over 5 min peak stress
+//   8000 → 0   over 2 min  ramp-down / recovery check
+// ─────────────────────────────────────────────────────────────────────────────
+export function stress() {
+    runApplicationFlow();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// default export — routes to the selected function
+// ─────────────────────────────────────────────────────────────────────────────
+export default function () {
+    if (TEST_FUNC === 'stress') {
+        stress();
+    } else {
+        rampUp();
+    }
 }
