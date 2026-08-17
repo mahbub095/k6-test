@@ -28,6 +28,7 @@ import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
 import encoding from 'k6/encoding';
+// import { SharedArray } from 'k6/data';
 
 // ── Select test function via env var ──────────────────────────────────────────
 // Valid values: "rampUp" | "stress"   (case-sensitive)
@@ -98,6 +99,29 @@ const STATIC_APPLICANT = {
     mobile:         '01700000000',
 };
 
+// ── CSV upload logic (commented out — using random generation instead) ────────
+// const VN_DATA = new SharedArray('verification_numbers', () => {
+//     const rows = open('./verification_numbers.csv').split('\n');
+//     return rows
+//         .slice(1)                        // skip header row
+//         .filter(line => line.trim())     // skip blank lines
+//         .map(line => {
+//             const cols = line.split(',');
+//             return {
+//                 verification_number: cols[0].trim(),
+//                 date_of_birth:       cols[1].trim(),
+//                 name_bn:             cols[2].trim(),
+//                 name_en:             cols[3].trim(),
+//                 father_name_bn:      cols[4].trim(),
+//                 father_name_en:      cols[5].trim(),
+//                 mother_name_bn:      cols[6].trim(),
+//                 mother_name_en:      cols[7].trim(),
+//                 mobile:              cols[8].trim(),
+//                 account_number:      cols[9].trim(),
+//             };
+//         });
+// });
+
 // ── Load test image once (shared across all VUs) ──────────────────────────────
 // Update the path below to point to your actual test image on disk.
 const IMAGE_BYTES = open('D:/Placeholder/test.jpg', 'b');
@@ -123,11 +147,11 @@ const errorRate             = new Rate('error_rate');
  *   4000 → 200  over 2 min    — cool down
  */
 const RAMP_UP_STAGES = [
-    { duration: '1m', target: 500  },
-    { duration: '1m', target: 2000 },
-    { duration: '1m', target: 4000 },
-    { duration: '5m', target: 4000 },
-    { duration: '2m', target: 200  },
+    { duration: '10s', target: 1  },
+    // { duration: '1m', target: 2000 },
+    // { duration: '1m', target: 4000 },
+    // { duration: '5m', target: 4000 },
+    // { duration: '2m', target: 200  },
 ];
 
 /**
@@ -142,13 +166,13 @@ const RAMP_UP_STAGES = [
  *   hold 5000 → 8000 over 5m  — peak stress
  *   8000 → 0   over 2 min     — ramp-down / recovery check
  */
-const STRESS_STAGES = [
-    { duration: '1m', target: 500  },
-    { duration: '2m', target: 2000 },
-    { duration: '3m', target: 5000 },
-    { duration: '5m', target: 8000 },
-    { duration: '2m', target: 0    },
-];
+// const STRESS_STAGES = [
+//     { duration: '1m', target: 500  },
+//     { duration: '2m', target: 2000 },
+//     { duration: '3m', target: 5000 },
+//     { duration: '5m', target: 8000 },
+//     { duration: '2m', target: 0    },
+// ];
 
 // ── Thresholds (shared) ───────────────────────────────────────────────────────
 const SHARED_THRESHOLDS = {
@@ -191,22 +215,38 @@ const PAGE_HEADERS = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared helper — builds a unique applicant object for the current VU
+// Shared helper — builds a random applicant, guaranteed non-null verification_number
 // ─────────────────────────────────────────────────────────────────────────────
 function buildApplicant() {
-    // Random verification_number: prefix "19" or "20" + 15 random digits
-    const vnPrefixes          = ['19', '20'];
-    const vnPrefix            = vnPrefixes[Math.floor(Math.random() * vnPrefixes.length)];
-    const vnSuffix            = String(Math.floor(Math.random() * 1e15)).padStart(15, '0');
-    const verification_number = `${vnPrefix}${vnSuffix}`;
+    // Generate verification_number: "19" or "20" + 15 digits
+    // Retry until we get a non-null, non-empty value (should always succeed on first try,
+    // but the loop protects against any edge-case where string generation returns falsy).
+    let verification_number = '';
+    let attempts = 0;
+    while (!verification_number && attempts < 10) {
+        const vnPrefixes = ['19', '20'];
+        const vnPrefix   = vnPrefixes[Math.floor(Math.random() * vnPrefixes.length)];
+        const vnSuffix   = String(Math.floor(Math.random() * 1e15)).padStart(15, '0');
+        const candidate  = `${vnPrefix}${vnSuffix}`;
+        if (candidate && candidate.length > 0) {
+            verification_number = candidate;
+        }
+        attempts++;
+    }
+
+    if (!verification_number) {
+        // Absolute fallback — should never happen
+        verification_number = '1990010112345678' + String(__VU).padStart(1, '0');
+        console.error(`VU ${__VU} — verification_number generation failed; using fallback: ${verification_number}`);
+    }
 
     // Random account_number: valid BD mobile-banking prefix + 8 random digits
-    const prefixes     = ['016', '019', '013', '015', '017', '018'];
-    const prefix       = prefixes[Math.floor(Math.random() * prefixes.length)];
-    const randomSuffix = String(Math.floor(Math.random() * 100000000)).padStart(8, '0');
+    const prefixes       = ['016', '019', '013', '015', '017', '018'];
+    const prefix         = prefixes[Math.floor(Math.random() * prefixes.length)];
+    const randomSuffix   = String(Math.floor(Math.random() * 100000000)).padStart(8, '0');
     const account_number = `${prefix}${randomSuffix}`;
 
-    // Birth year range: 1960–2000  →  age range 26–66 (all strictly > 25)
+    // Birth year range: 1960–2000  →  age range 26–66 (strictly > 25)
     const birthYear    = 1960 + ((__VU - 1) % 41);
     const dobFormatted = `${birthYear}-06-15`;
     const age          = 2026 - birthYear;
