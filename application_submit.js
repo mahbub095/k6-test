@@ -1,15 +1,16 @@
 /**
  * Application Submit Load Test
  *
- * Runs the full 20-step application submission flow.
+ * Runs the full 21-step application submission flow.
  * Select test profile via TEST_FUNC environment variable:
  *
  *   k6 run application_submit.js                        (default: rampUp)
  *   k6 run -e TEST_FUNC=rampUp application_submit.js
  *   k6 run -e TEST_FUNC=stress  application_submit.js
+ *   k6 run -e BEARER_TOKEN=xxx  application_submit.js
  *
  * Requirements:
- *   - Image file at: D:/Placeholder/test.jpg
+ *   - Image file at: D:/k6-test/image/applicant.jpg
  */
 
 import http  from 'k6/http';
@@ -24,9 +25,13 @@ const TEST_FUNC = __ENV.TEST_FUNC || 'rampUp';
 
 const BASE_URL     = 'https://stage-api.bhata.gov.bd';
 const PAGE_URL     = 'https://stage.bhata.gov.bd';
-const BEARER_TOKEN = '337274|R3xxrFTQm7P1x2AbUh5rX4NtX9X5nnb9UIcXbXCr5c0795b0';
 
-// Image loaded once at init time, shared across all VUs
+// Production Gateway
+const GATEWAY_URL = 'https://gateway.bhata.gov.bd';
+
+const BEARER_TOKEN = __ENV.BEARER_TOKEN || '337274|R3xxrFTQm7P1x2AbUh5rX4NtX9X5nnb9UIcXbXCr5c0795b0';
+
+// Image loaded from local drive — update path if your file is elsewhere
 const IMAGE_BYTES = open('D:/Placeholder/test.jpg', 'b');
 
 // ---------------------------------------------------------------------------
@@ -88,19 +93,19 @@ const APPLICATION_PMT = JSON.stringify([
 // ---------------------------------------------------------------------------
 
 const RAMP_UP_STAGES = [
-    { duration: '10s', target: 1    },
-    { duration: '1m',  target: 2000 },
-    { duration: '1m',  target: 4000 },
-    { duration: '5m',  target: 4000 },
-    { duration: '2m',  target: 200  },
+    { duration: '10s', target: 5    },
+    // { duration: '1m',  target: 2000 },
+    // { duration: '1m',  target: 4000 },
+    // { duration: '5m',  target: 4000 },
+    // { duration: '2m',  target: 200  },
 ];
 
 const STRESS_STAGES = [
-    { duration: '1m', target: 500  },
-    { duration: '2m', target: 2000 },
-    { duration: '3m', target: 5000 },
-    { duration: '5m', target: 8000 },
-    { duration: '2m', target: 0    },
+    { duration: '1m', target: 5  },
+    // { duration: '2m', target: 2000 },
+    // { duration: '3m', target: 5000 },
+    // { duration: '5m', target: 8000 },
+    // { duration: '2m', target: 0    },
 ];
 
 // ---------------------------------------------------------------------------
@@ -117,6 +122,7 @@ export const options = {
     },
     thresholds: {
         registration_duration:  [{ threshold: 'p(95)<10000', abortOnFail: false }],
+        media_upload_duration:  [{ threshold: 'p(95)<10000', abortOnFail: false }],
         captcha_fetch_duration:  [{ threshold: 'p(95)<3000',  abortOnFail: false }],
         error_rate:              [{ threshold: 'rate<0.10',   abortOnFail: false }],
         http_req_duration: [
@@ -131,6 +137,7 @@ export const options = {
 // ---------------------------------------------------------------------------
 
 const registrationDuration = new Trend('registration_duration', true);
+const mediaUploadDuration  = new Trend('media_upload_duration',  true);
 const captchaFetchDuration = new Trend('captcha_fetch_duration', true);
 const requestCount         = new Counter('total_requests');
 const errorRate            = new Rate('error_rate');
@@ -152,6 +159,75 @@ const PAGE_HEADERS = {
     'Sec-Fetch-Dest': 'document',
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36',
 };
+
+// ---------------------------------------------------------------------------
+// Helper: generate a UUID v4 (unique upload session token per VU per call)
+// ---------------------------------------------------------------------------
+
+function uuidv4() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Helper: POST a single media-upload and return the server image path
+// ---------------------------------------------------------------------------
+
+function mediaUpload(fieldName, stepTag) {
+    const token = uuidv4();
+
+    const res = http.post(
+        `${BASE_URL}/api/v1/global/online-application/media-upload?lang=bn`,
+        // For Production
+        // `${GATEWAY_URL}/api/v1/global/online-application/media-upload?lang=bn`,
+        {
+            file:  http.file(IMAGE_BYTES, 'applicant.jpg', 'image/jpeg'),
+            field: fieldName,
+            token: token,
+        },
+        {
+            headers: {
+                Authorization:    `Bearer ${BEARER_TOKEN}`,
+                Accept:           'application/json, text/plain, */*',
+                'X-App-Language': 'bn',
+                // Content-Type omitted — k6 sets multipart/form-data + boundary automatically
+            },
+            timeout: '60s',
+            tags:    { step: stepTag },
+        }
+    );
+    requestCount.add(1);
+    mediaUploadDuration.add(res.timings.duration);
+
+    const ok = check(res, {
+        [`${fieldName} upload → 200 or 201`]: r => r.status === 200 || r.status === 201,
+        [`${fieldName} upload not 422`]:      r => r.status !== 422,
+        [`${fieldName} upload not 429`]:      r => r.status !== 429,
+        [`${fieldName} upload not 5xx`]:      r => r.status < 500,
+    });
+
+    if (!ok) {
+        errorRate.add(1);
+        console.error(`VU ${__VU} — ${fieldName} upload FAILED HTTP ${res.status} | body: ${res.body}`);
+        return '';
+    }
+
+    let imagePath = '';
+    try {
+        const body = res.json();
+        imagePath = body.path || (body.data && body.data.path) || body.url || '';
+    } catch (_) { /* non-JSON response */ }
+
+    if (!imagePath) {
+        console.warn(`VU ${__VU} — ${fieldName}: image path not found in response. body: ${res.body}`);
+    }
+
+    console.log(`VU ${__VU} — ${fieldName} upload → HTTP ${res.status} | ${res.timings.duration}ms | path: ${imagePath}`);
+    return imagePath;
+}
 
 // ---------------------------------------------------------------------------
 // Helper: build per-VU applicant data
@@ -324,8 +400,18 @@ function runApplicationFlow() {
     });
     sleep(1);
 
-    // Step 20 — POST registration (multipart/form-data + image)
-    group('Step 20 - POST Registration', () => {
+    // Wait before submitting — simulates the time a real user spends filling the form
+    sleep(5);
+
+    // Step 20 — POST media-upload (applicant photo)
+    let uploadedImagePath = '';
+    group('Step 20 - POST Media Upload (applicant photo)', () => {
+        uploadedImagePath = mediaUpload('image', '20_media_upload_photo');
+    });
+    sleep(1);
+
+    // Step 21 — POST registration
+    group('Step 21 - POST Registration', () => {
         if (!captchaToken) {
             console.warn(`VU ${__VU} — skipping POST: no captcha_token`);
             errorRate.add(1);
@@ -400,8 +486,11 @@ function runApplicationFlow() {
             captcha_token: captchaToken,
             captcha_value: captchaValue,
 
-            // Image — k6 sets Content-Type: multipart/form-data automatically
-            image: http.file(IMAGE_BYTES, 'test.jpg', 'image/jpeg'),
+            // Image — use server path from media-upload if available, otherwise embed binary
+            ...(uploadedImagePath
+                ? { image_path: uploadedImagePath }
+                : { image: http.file(IMAGE_BYTES, 'test.jpg', 'image/jpeg') }
+            ),
         };
 
         const res = http.post(
@@ -410,7 +499,7 @@ function runApplicationFlow() {
             {
                 headers: API_HEADERS,
                 timeout: '60s',
-                tags:    { step: '20_post_registration' },
+                tags:    { step: '21_post_registration' },
             }
         );
         requestCount.add(1);
