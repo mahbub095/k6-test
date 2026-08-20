@@ -213,29 +213,26 @@ function uuidv4() {
 //   every iteration of every VU produces a distinct value — even across
 //   multiple test runs on the same day.
 //
-//   verification_number — "19" prefix + VU(6) + ITER(6) + ms(3) = 17 digits
-//   account_number      — "016" prefix + VU(4) + ITER(4) = 11 digits
-//   mobile              — "017" prefix + VU(4) + ITER(4) = 11 digits (≠ account_number)
+//   account_number  — "016" + timestamp(7) + vu(2) + random(4) → unique & random
+//   mobile          — "017" + timestamp(7) + vu(2) + random(4) → unique & random
+//   verification_number — "19" + timestamp(7) + vu(4) + iter(3) + random(3)
 // ---------------------------------------------------------------------------
 
+function randomUniqueNumber(prefix, totalDigits) {
+    const tsPart   = String(Date.now() % 10000000).padStart(7, '0');
+    const vuPart   = String(__VU % 100).padStart(2, '0');
+    const randPart = String(Math.floor(Math.random() * 1000000)).padStart(6, '0');
+    const raw      = tsPart + vuPart + randPart;
+    const needed   = totalDigits - prefix.length;
+    return prefix + raw.slice(-needed);
+}
+
 function buildApplicant() {
-    const ts = Date.now() % 1000;
+    const account_number = randomUniqueNumber('016', 11);
+    const mobile         = randomUniqueNumber('017', 11);
 
-    const verification_number =
-        '19' +
-        String(__VU).padStart(6, '0') +
-        String(__ITER).padStart(6, '0') +
-        String(ts).padStart(3, '0');
-
-    const account_number =
-        '016' +
-        String(__VU).padStart(4, '0') +
-        String(__ITER).padStart(4, '0');
-
-    const mobile =
-        '017' +
-        String(__VU).padStart(4, '0') +
-        String(__ITER).padStart(4, '0');
+    // verification_number: exactly 17 digits, unique & random
+    const verification_number = randomUniqueNumber('19', 17);
 
     const birthYear  = 1950 + Math.floor(Math.random() * 51);
     const birthMonth = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0');
