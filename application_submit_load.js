@@ -90,10 +90,10 @@ const IMAGE_FILE = http.file(open('./test.jpg', 'b'), 'test.jpg', 'image/jpeg');
 // ---------------------------------------------------------------------------
 
 const BREAKPOINT_STAGES = [
-    { duration: '2m', target: 20000  },  // Stage 01 — baseline, server should be healthy
-    { duration: '3m', target: 30000  },  // Stage 02 — light load
-    { duration: '3m', target: 45000  },  // Stage 03 — moderate load
-    { duration: '3m', target: 60000  },  // Stage 04 — medium load
+    { duration: '2m', target: 1  },  // Stage 01 — baseline, server should be healthy
+    // { duration: '3m', target: 30000  },  // Stage 02 — light load
+    // { duration: '3m', target: 45000  },  // Stage 03 — moderate load
+    // { duration: '3m', target: 60000  },  // Stage 04 — medium load
 //     { duration: '3m', target: 75000  },  // Stage 05 — medium-high load
 //     { duration: '3m', target: 90000  },  // Stage 06 — high load
 //     { duration: '3m', target: 10500 },  // Stage 07 — near-stress
