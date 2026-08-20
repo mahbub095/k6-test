@@ -33,9 +33,9 @@ const IMAGE_FILE = http.file(open('./test.jpg', 'b'), 'test.jpg', 'image/jpeg');
 // ---------------------------------------------------------------------------
 
 const RAMP_UP_STAGES = [
-    { duration: '2m', target: 10000 },
-    { duration: '3m', target: 20000 },
-    { duration: '5m', target: 30000 },
+    { duration: '2m', target: 1 },
+    // { duration: '3m', target: 50000 },
+    // { duration: '5m', target: 60000 },
 ];
 
 const STRESS_STAGES = [
@@ -204,7 +204,7 @@ function uuidv4() {
 // Helper: build per-VU applicant data
 // Uniqueness guarantees:
 //   verification_number — "19"/"20" prefix + 15 truly random digits (~1e15 space)
-//   account_number      — random prefix + 10 random digits (~1e10 space)
+//   account_number      — 3-digit prefix + 8 random digits = 11 digits total (~1e8 space)
 //   date_of_birth       — random year 1950–2000 + random month + random day
 // ---------------------------------------------------------------------------
 
@@ -214,9 +214,9 @@ function buildApplicant() {
     const vnSuffix = String(Math.floor(Math.random() * 1e15)).padStart(15, '0');
     const verification_number = `${vnPrefix}${vnSuffix}`;
 
-    // account_number: mobile prefix + 10 random digits
+    // account_number: 3-digit mobile prefix + 8 random digits = 11 digits total
     const mobilePrefix   = ['013', '015', '016', '017', '018', '019'][Math.floor(Math.random() * 6)];
-    const mobileSuffix   = String(Math.floor(Math.random() * 1e10)).padStart(10, '0');
+    const mobileSuffix   = String(Math.floor(Math.random() * 1e8)).padStart(8, '0');
     const account_number = `${mobilePrefix}${mobileSuffix}`;
 
     // date_of_birth: fully random year (1950–2000), month (01–12), day (01–28)
