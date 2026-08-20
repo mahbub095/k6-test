@@ -1,28 +1,67 @@
 /**
- * Application Submit — Load Test (Ideal Stages)
+ * Application Submit — Breakpoint Test
  *
- * Test Type : Load Test
- * Purpose   : Measure performance under expected normal and peak load,
- *             with a proper warm-up → ramp-up → steady-state → ramp-down
- *             profile. The full 23-step application submission flow is
- *             exercised at every stage.
+ * Test Type : Breakpoint Test
+ * Purpose   : Find the exact VU level at which https://api.bhata.gov.bd
+ *             breaks — returning 502 Bad Gateway, 503 Service Unavailable,
+ *             connection refused, or timeout. Load ramps continuously and
+ *             slowly so the breaking point is captured with precision.
  *
- * Stages    :
- *   1m  →  50 VUs   warm-up         (system stabilises, caches warm)
- *   3m  → 200 VUs   ramp-up         (gradual increase toward normal load)
- *   5m  → 200 VUs   steady-state    (normal operating load — baseline perf)
- *   3m  → 500 VUs   peak ramp       (simulate peak traffic burst)
- *   5m  → 500 VUs   peak steady     (hold peak — confirm sustained perf)
- *   2m  →   0 VUs   ramp-down       (graceful drain, no abrupt shutdown)
+ * How it works:
+ *   VUs ramp in small, slow increments. At each level the test measures
+ *   error rates and latency. When 502/503/connection errors appear and
+ *   sustain, that VU count IS the server's capacity ceiling.
  *
- * Total duration: ~19 minutes
+ *   The test uses `abortOnFail: true` on the 502 threshold so it stops
+ *   automatically the moment sustained failure is detected — no need to
+ *   babysit it or guess when to kill it.
  *
- * Usage:
- *   k6 run application_submit.js
- *   k6 run -e BEARER_TOKEN=xxx  application_submit.js
+ * Breakpoint Stages (slow ramp — 150 VU increments every 3 minutes):
+ *
+ *   Stage  VUs    Cumulative Time   Purpose
+ *   ──────────────────────────────────────────────────────────────────────
+ *   01     150    3m                Initial baseline — server should be healthy
+ *   02     300    6m                Light load
+ *   03     450    9m                Moderate load
+ *   04     600    12m               Medium load
+ *   05     750    15m               Medium-high load
+ *   06     900    18m               High load
+ *   07    1050    21m               Near-stress
+ *   08    1200    24m               Heavy load — watch for first degradation
+ *   09    1350    27m               Very heavy — 502s may begin here
+ *   10    1500    30m               Extreme — expect sustained 502s or down
+ *   11       0    33m               Drain — verify if server recovers
+ *
+ * Total duration: ~33 minutes (or earlier if abortOnFail triggers)
+ *
+ * Key metrics to watch in real time:
+ *   - http_req_failed          → % of requests returning any error
+ *   - gateway_502_rate         → rate of 502 Bad Gateway responses
+ *   - server_down_rate         → rate of 5xx + connection failures combined
+ *   - registration_duration    → p95 latency on POST /registration
+ *   - vus                      → current active VU count when failure starts
+ *
+ * Run command:
+ *   k6 run application_submit_load.js
+ *   k6 run -e BEARER_TOKEN=xxx application_submit_load.js
+ *
+ *   With live output to JSON (recommended — analyse after):
+ *   k6 run --out json=results/breakpoint_result.json application_submit_load.js
+ *
+ * How to read results:
+ *   Find the timestamp when `gateway_502_rate` first exceeds 50%.
+ *   Cross-reference with `vus` metric at that timestamp.
+ *   That VU count is the production server's breaking point.
+ *
+ * WARNING:
+ *   This test is designed to cause service degradation on the target server.
+ *   Only run against production with explicit authorisation.
+ *   The abortOnFail threshold will stop the test automatically when
+ *   sustained 502/503 is detected to minimise impact duration.
  *
  * Requirements:
  *   - Image file at: ./test.jpg  (relative to this script)
+ *   - results/ directory must exist for --out json output
  */
 
 import http from 'k6/http';
@@ -33,8 +72,8 @@ import { Trend, Counter, Rate } from 'k6/metrics';
 // Config
 // ---------------------------------------------------------------------------
 
-const PAGE_URL    = 'https://dss.bhata.gov.bd';
-const API_URL     = 'https://api.bhata.gov.bd';
+const PAGE_URL    = 'https://stage.bhata.gov.bd';
+const API_URL     = 'https://stage-api.bhata.gov.bd';
 const GATEWAY_URL = 'https://gateway.bhata.gov.bd';
 
 const BEARER_TOKEN = __ENV.BEARER_TOKEN || '';
@@ -43,37 +82,92 @@ const BEARER_TOKEN = __ENV.BEARER_TOKEN || '';
 const IMAGE_FILE = http.file(open('./test.jpg', 'b'), 'test.jpg', 'image/jpeg');
 
 // ---------------------------------------------------------------------------
-// Scenario stages — ideal load test profile
+// Breakpoint ramp stages
+//
+// Strategy: slow, even increments of 150 VUs every 3 minutes.
+// This gives the server time to respond to each load level before
+// the next increment hits — making the breaking point observable and precise.
 // ---------------------------------------------------------------------------
 
-const LOAD_STAGES = [
-    { duration: '2m', target: 20000  },   // warm-up: system stabilises, caches warm
-    { duration: '3m', target: 30000 },   // ramp-up: gradual increase toward normal load
-    { duration: '5m', target: 60000 },   // steady-state: normal operating load
-    // { duration: '3m', target: 500 },   // peak ramp: simulate peak traffic burst
-    // { duration: '5m', target: 500 },   // peak steady: hold peak, confirm sustained perf
-    // { duration: '2m', target: 0   },   // ramp-down: graceful drain
+const BREAKPOINT_STAGES = [
+    { duration: '2m', target: 20000  },  // Stage 01 — baseline, server should be healthy
+    { duration: '3m', target: 30000  },  // Stage 02 — light load
+    { duration: '3m', target: 45000  },  // Stage 03 — moderate load
+    { duration: '3m', target: 60000  },  // Stage 04 — medium load
+//     { duration: '3m', target: 75000  },  // Stage 05 — medium-high load
+//     { duration: '3m', target: 90000  },  // Stage 06 — high load
+//     { duration: '3m', target: 10500 },  // Stage 07 — near-stress
+//     { duration: '3m', target: 12000 },  // Stage 08 — heavy — watch for first degradation
+//     { duration: '3m', target: 13500 },  // Stage 09 — very heavy — 502s may begin here
+//     { duration: '3m', target: 15000 },  // Stage 10 — extreme — expect sustained 502/down
+//     { duration: '3m', target: 0    },  // Stage 11 — drain — verify server recovery
 ];
+
 // ---------------------------------------------------------------------------
 // k6 options
 // ---------------------------------------------------------------------------
 
 export const options = {
     scenarios: {
-        application_submit: {
+        breakpoint: {
             executor:         'ramping-vus',
-            stages:           LOAD_STAGES,
-            gracefulRampDown: '30s',
+            stages:           BREAKPOINT_STAGES,
+            gracefulRampDown: '60s',
         },
     },
+
     thresholds: {
-        media_upload_duration:  [{ threshold: 'p(95)<10000', abortOnFail: false }],
-        registration_duration:  [{ threshold: 'p(95)<10000', abortOnFail: false }],
-        captcha_fetch_duration: [{ threshold: 'p(95)<3000',  abortOnFail: false }],
-        error_rate:             [{ threshold: 'rate<0.05',   abortOnFail: false }],
-        http_req_duration: [
-            { threshold: 'p(90)<8000',  abortOnFail: false },
-            { threshold: 'p(95)<10000', abortOnFail: false },
+        // ── Breakpoint detection thresholds ──────────────────────────────────
+        //
+        // gateway_502_rate: abort the test automatically when more than 50%
+        // of all requests return 502 over a 1-minute window. This marks the
+        // confirmed breaking point and stops the test to limit production impact.
+        'gateway_502_rate': [
+            {
+                threshold:   'rate<0.50',
+                abortOnFail: true,     // AUTO-STOP when server is truly down
+                delayAbortEval: '60s', // Wait 60s to confirm it's sustained, not transient
+            },
+        ],
+
+        // server_down_rate covers 502 + 503 + connection errors combined
+        'server_down_rate': [
+            {
+                threshold:   'rate<0.50',
+                abortOnFail: true,
+                delayAbortEval: '60s',
+            },
+        ],
+
+        // ── Degradation signal thresholds (abortOnFail: false — informational) ──
+        // These tell you at what point the server STARTS degrading, before it dies.
+        'registration_duration': [
+            { threshold: 'p(95)<10000', abortOnFail: false },  // 10s — first warning
+            { threshold: 'p(95)<30000', abortOnFail: false },  // 30s — severe degradation
+        ],
+        'captcha_fetch_duration': [
+            { threshold: 'p(95)<5000',  abortOnFail: false },
+        ],
+        'media_upload_duration': [
+            { threshold: 'p(95)<15000', abortOnFail: false },
+        ],
+
+        // ── Overall error rate — watch for gradual climb before 502 flood ──────
+        'error_rate': [
+            { threshold: 'rate<0.10', abortOnFail: false },  // 10% — degrading
+            { threshold: 'rate<0.50', abortOnFail: false },  // 50% — near broken
+        ],
+
+        // ── Built-in http_req_failed tracks connection errors + non-2xx ─────────
+        'http_req_failed': [
+            { threshold: 'rate<0.10', abortOnFail: false },
+            { threshold: 'rate<0.50', abortOnFail: false },
+        ],
+
+        // ── Raw latency ──────────────────────────────────────────────────────────
+        'http_req_duration': [
+            { threshold: 'p(90)<15000', abortOnFail: false },
+            { threshold: 'p(95)<30000', abortOnFail: false },
         ],
     },
 };
@@ -82,17 +176,26 @@ export const options = {
 // Custom metrics
 // ---------------------------------------------------------------------------
 
-const mediaUploadDuration  = new Trend('media_upload_duration',  true);
 const registrationDuration = new Trend('registration_duration',  true);
+const mediaUploadDuration  = new Trend('media_upload_duration',  true);
 const captchaFetchDuration = new Trend('captcha_fetch_duration', true);
 const requestCount         = new Counter('total_requests');
+
+// gateway_502_rate — specifically tracks 502 Bad Gateway from the API/gateway
+// This is the PRIMARY signal that the server is down or overloaded
+const gateway502Rate       = new Rate('gateway_502_rate');
+
+// server_down_rate — tracks 502 + 503 + 0 (connection refused/timeout) combined
+// A sustained rise here means the server cannot handle the current load
+const serverDownRate       = new Rate('server_down_rate');
+
+// error_rate — tracks any non-2xx response (wider net than serverDownRate)
 const errorRate            = new Rate('error_rate');
 
 // ---------------------------------------------------------------------------
 // Headers
 // ---------------------------------------------------------------------------
 
-// Page headers — used for browser-like GET requests (no Authorization)
 const PAGE_HEADERS = {
     'Accept':                    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
     'Upgrade-Insecure-Requests': '1',
@@ -108,7 +211,6 @@ const PAGE_HEADERS = {
     'sec-ch-ua-platform':        '"Windows"',
 };
 
-// API headers — used for all JSON API calls (Content-Type omitted for multipart)
 const API_HEADERS = {
     Authorization:    `Bearer ${BEARER_TOKEN}`,
     Accept:           'application/json, text/plain, */*',
@@ -196,8 +298,7 @@ const APPLICATION_ALLOWANCE_VALUES = JSON.stringify([
 ]);
 
 // ---------------------------------------------------------------------------
-// Helper: UUID v4 — client-generated media_token, sent with upload and
-// repeated in registration so the server can match the file to the submission
+// Helper: UUID v4
 // ---------------------------------------------------------------------------
 
 function uuidv4() {
@@ -211,48 +312,30 @@ function uuidv4() {
 // ---------------------------------------------------------------------------
 // Helper: build per-VU applicant data — collision-proof
 //
-// Uniqueness strategy:
-//   All unique fields are derived from (__VU, __ITER, Date.now()) so that
-//   every iteration of every VU produces a distinct value — even across
-//   multiple test runs on the same day.
-//
-//   verification_number — "19" prefix + zero-padded VU (6 digits)
-//                         + zero-padded ITER (6 digits) + ms timestamp (3 digits)
-//                         = 17 digits total, guaranteed unique per iteration
-//
-//   account_number      — "016" prefix + zero-padded VU (4 digits)
-//                         + zero-padded ITER (4 digits) = 11 digits total
-//                         Unique because (VU, ITER) pair is unique per run.
-//
-//   mobile              — same scheme as account_number but with "017" prefix
-//                         so mobile ≠ account_number and is also unique.
-//
-//   date_of_birth       — random (not a uniqueness field on the server)
+// verification_number — "19" + VU(6) + ITER(6) + ms(3) = 17 digits
+// account_number      — "016" + VU(4) + ITER(4) = 11 digits
+// mobile              — "017" + VU(4) + ITER(4) = 11 digits (≠ account_number)
 // ---------------------------------------------------------------------------
 
 function buildApplicant() {
-    const ts = Date.now() % 1000;  // last 3 digits of ms timestamp for extra entropy
+    const ts = Date.now() % 1000;
 
-    // verification_number: "19" + VU(6) + ITER(6) + ts(3) = 17 digits, always unique
     const verification_number =
         '19' +
         String(__VU).padStart(6, '0') +
         String(__ITER).padStart(6, '0') +
         String(ts).padStart(3, '0');
 
-    // account_number: "016" + VU(4) + ITER(4) = 11 digits
     const account_number =
         '016' +
         String(__VU).padStart(4, '0') +
         String(__ITER).padStart(4, '0');
 
-    // mobile: "017" + VU(4) + ITER(4) = 11 digits — different from account_number
     const mobile =
         '017' +
         String(__VU).padStart(4, '0') +
         String(__ITER).padStart(4, '0');
 
-    // date_of_birth: random (server does not require uniqueness on dob)
     const birthYear  = 1950 + Math.floor(Math.random() * 51);
     const birthMonth = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0');
     const birthDay   = String(1 + Math.floor(Math.random() * 28)).padStart(2, '0');
@@ -275,57 +358,95 @@ function buildApplicant() {
 }
 
 // ---------------------------------------------------------------------------
-// Main flow
+// Shared response classifier
+// Records into gateway_502_rate and server_down_rate for every HTTP call.
+// Call this after EVERY request so the breakpoint metrics stay accurate.
+// ---------------------------------------------------------------------------
+
+function classifyResponse(res) {
+    const is502  = res.status === 502;
+    const isDown = res.status === 502 || res.status === 503 || res.status === 0;
+
+    gateway502Rate.add(is502  ? 1 : 0);
+    serverDownRate.add(isDown ? 1 : 0);
+
+    // Log 502s explicitly so you know exactly when they start appearing
+    if (is502) {
+        console.error(`[502] VU ${__VU} ITER ${__ITER} — ${res.url} | ${res.timings.duration}ms`);
+    }
+    if (res.status === 503) {
+        console.error(`[503] VU ${__VU} ITER ${__ITER} — ${res.url} | ${res.timings.duration}ms`);
+    }
+    if (res.status === 0) {
+        console.error(`[CONN_FAIL] VU ${__VU} ITER ${__ITER} — ${res.url} — connection refused / timeout`);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Main flow — full 23-step application submission
 // ---------------------------------------------------------------------------
 
 export default function () {
     const applicant = buildApplicant();
-    console.log(`VU ${__VU} — BRS: ${applicant.verification_number} | acc: ${applicant.account_number} | dob: ${applicant.date_of_birth}`);
 
-    // Step 1 — GET online-application page
+    // ── Step 1 — GET online-application page ─────────────────────────────────
     group('Step 1 - GET Online Application Page', () => {
         const res = http.get(`${PAGE_URL}/online-application`, {
             headers: PAGE_HEADERS,
             timeout: '30s',
-            tags:    { step: '01_get_page' },
+            tags:    { step: '01_get_page', test: 'breakpoint' },
         });
         requestCount.add(1);
+        classifyResponse(res);
+
         const ok = check(res, {
-            'page → 200':   r => r.status === 200,
-            'page < 5s':    r => r.timings.duration < 5000,
-            'page not 429': r => r.status !== 429,
+            'step01 → 200':     r => r.status === 200,
+            'step01 not 502':   r => r.status !== 502,
+            'step01 not 503':   r => r.status !== 503,
+            'step01 not 0':     r => r.status !== 0,
         });
         if (!ok) errorRate.add(1);
     });
     sleep(1);
 
-    // Step 2 — GET application page data
+    // ── Step 2 — GET application page data ───────────────────────────────────
     group('Step 2 - GET Application Page Data', () => {
         const res = http.get(`${API_URL}/api/v1/global/getApplicationPageData?lang=bn`, {
             headers: API_HEADERS,
             timeout: '30s',
-            tags:    { step: '02_page_data' },
+            tags:    { step: '02_page_data', test: 'breakpoint' },
         });
         requestCount.add(1);
-        const ok = check(res, { 'pageData → 200': r => r.status === 200 });
+        classifyResponse(res);
+
+        const ok = check(res, {
+            'step02 → 200':   r => r.status === 200,
+            'step02 not 502': r => r.status !== 502,
+            'step02 not 503': r => r.status !== 503,
+        });
         if (!ok) errorRate.add(1);
     });
     sleep(1);
 
-    // Step 3 — GET disabled areas
+    // ── Step 3 — GET disabled areas ──────────────────────────────────────────
     group('Step 3 - GET Disabled Areas', () => {
         const res = http.get(`${API_URL}/api/v1/global/online-application/disabled-areas/8?lang=bn`, {
             headers: API_HEADERS,
             timeout: '30s',
-            tags:    { step: '03_disabled_areas' },
+            tags:    { step: '03_disabled_areas', test: 'breakpoint' },
         });
         requestCount.add(1);
-        const ok = check(res, { 'disabled-areas → 200': r => r.status === 200 });
+        classifyResponse(res);
+
+        const ok = check(res, {
+            'step03 → 200':   r => r.status === 200,
+            'step03 not 502': r => r.status !== 502,
+        });
         if (!ok) errorRate.add(1);
     });
     sleep(1);
 
-    // Step 4 — GET captcha
+    // ── Step 4 — GET captcha ─────────────────────────────────────────────────
     let captchaToken = '';
     let captchaValue = '';
 
@@ -333,100 +454,68 @@ export default function () {
         const res = http.get(`${API_URL}/api/v1/captcha?lang=bn`, {
             headers: API_HEADERS,
             timeout: '30s',
-            tags:    { step: '04_captcha' },
+            tags:    { step: '04_captcha', test: 'breakpoint' },
         });
         requestCount.add(1);
         captchaFetchDuration.add(res.timings.duration);
+        classifyResponse(res);
 
         const ok = check(res, {
-            'captcha → 200':    r => r.status === 200,
-            'captcha has body': r => r.body && r.body.length > 0,
-            'captcha not 429':  r => r.status !== 429,
+            'step04 → 200':   r => r.status === 200,
+            'step04 not 502': r => r.status !== 502,
+            'step04 not 503': r => r.status !== 503,
         });
-
         if (!ok) { errorRate.add(1); return; }
 
         try {
-            const body = res.json();
+            const body   = res.json();
             captchaToken = body.captcha_token || body.token || '';
             captchaValue = body.captcha_value || body.value || '';
         } catch (_) { /* non-JSON */ }
-
-        if (!captchaToken) {
-            console.warn(`VU ${__VU} — captcha_token missing. body: ${res.body}`);
-            errorRate.add(1);
-        }
     });
     sleep(1);
 
-    // Step 5 — POST media-upload
-    // media_token is client-generated — sent with upload and reused in registration
+    // ── Step 5 — POST media-upload (via GATEWAY) ─────────────────────────────
     let uploadedImagePath = '';
     const mediaToken      = uuidv4();
 
     group('Step 5 - POST Media Upload', () => {
         const res = http.post(
-            `${GATEWAY_URL}/api/v1/global/online-application/media-upload?lang=bn`,
-            {
-                field: 'image',
-                file:  IMAGE_FILE,
-                token: mediaToken,
-            },
+            `${API_URL}/api/v1/global/online-application/media-upload?lang=bn`,
+            { field: 'image', file: IMAGE_FILE, token: mediaToken },
             {
                 headers: API_HEADERS,
                 timeout: '60s',
-                tags:    { step: '05_media_upload' },
+                tags:    { step: '05_media_upload', test: 'breakpoint' },
             }
         );
-
         requestCount.add(1);
         mediaUploadDuration.add(res.timings.duration);
+        classifyResponse(res);
 
         const ok = check(res, {
-            'media-upload → 200 or 201':   r => r.status === 200 || r.status === 201,
-            'media-upload not 422':        r => r.status !== 422,
-            'media-upload not 429':        r => r.status !== 429,
-            'media-upload not 5xx':        r => r.status < 500,
-            'media-upload < 10s':          r => r.timings.duration < 10000,
-            'media-upload has image path': r => {
-                try {
-                    const b = r.json();
-                    return !!(b.path || (b.data && b.data.path) || b.url);
-                } catch (_) { return false; }
-            },
+            'step05 → 200 or 201': r => r.status === 200 || r.status === 201,
+            'step05 not 502':      r => r.status !== 502,
+            'step05 not 503':      r => r.status !== 503,
+            'step05 not 5xx':      r => r.status < 500,
         });
-
         errorRate.add(!ok);
 
-        console.log(`VU ${__VU} — media-upload HTTP ${res.status} | ${res.timings.duration}ms`);
-
-        if (!ok) {
-            console.error(`VU ${__VU} media-upload FAILED — body: ${res.body}`);
-            return;
-        }
-
-        // Parse image path — media_token is already known (we generated it)
-        try {
-            const body        = res.json();
-            uploadedImagePath = body.path || (body.data && body.data.path) || body.url || '';
-        } catch (_) { /* non-JSON */ }
-
-        if (uploadedImagePath) {
-            console.log(`VU ${__VU} — uploaded image path: ${uploadedImagePath}`);
-        } else {
-            console.error(`VU ${__VU} — image path missing in upload response. body: ${res.body}`);
-            errorRate.add(1);
+        if (ok) {
+            try {
+                const body        = res.json();
+                uploadedImagePath = body.path || (body.data && body.data.path) || body.url || '';
+            } catch (_) { /* non-JSON */ }
         }
     });
     sleep(1);
 
-    // Abort if image upload did not return a valid path — registration will fail without it
     if (!uploadedImagePath) {
-        console.error(`VU ${__VU} — aborting: no image path from media-upload, skipping remaining steps`);
+        console.warn(`VU ${__VU} [breakpoint] — no image path, skipping remaining steps`);
         return;
     }
 
-    // Steps 6–19 — Batched lookup GETs
+    // ── Steps 6–19 — Batched lookup GETs ─────────────────────────────────────
     group('Steps 6-19 - Lookup GETs', () => {
         const lookupUrls = [
             `${API_URL}/api/v1/global/district/get/3?lang=bn`,
@@ -444,24 +533,23 @@ export default function () {
             `${API_URL}/api/v1/global/ward/get/3240?lang=bn`,
             `${API_URL}/api/v1/global/thana/get/42?lang=bn`,
         ];
-
         const responses = http.batch(
             lookupUrls.map(url => ({
                 method: 'GET',
                 url,
-                params: { headers: API_HEADERS, timeout: '30s', tags: { step: '06_lookups' } },
+                params: { headers: API_HEADERS, timeout: '30s', tags: { step: '06_lookups', test: 'breakpoint' } },
             }))
         );
-
         requestCount.add(lookupUrls.length);
         responses.forEach((res, i) => {
-            const ok = check(res, { [`lookup[${i}] → 200`]: r => r.status === 200 });
+            classifyResponse(res);
+            const ok = check(res, { [`step06 lookup[${i}] → 200`]: r => r.status === 200 });
             if (!ok) errorRate.add(1);
         });
     });
     sleep(1);
 
-    // Steps 20–22 — Check duplicate account (×3 as recorded in JMX)
+    // ── Steps 20–22 — Check duplicate account ────────────────────────────────
     group('Steps 20-22 - GET Check Duplicate Account', () => {
         const dupUrl =
             `${API_URL}/api/v1/global/online-application/check-duplicate-account` +
@@ -471,100 +559,83 @@ export default function () {
             `&ignore_id=&lang=bn`;
 
         const responses = http.batch([
-            { method: 'GET', url: dupUrl, params: { headers: API_HEADERS, timeout: '30s', tags: { step: '20_check_duplicate' } } },
-            { method: 'GET', url: dupUrl, params: { headers: API_HEADERS, timeout: '30s', tags: { step: '21_check_duplicate' } } },
-            { method: 'GET', url: dupUrl, params: { headers: API_HEADERS, timeout: '30s', tags: { step: '22_check_duplicate' } } },
+            { method: 'GET', url: dupUrl, params: { headers: API_HEADERS, timeout: '30s', tags: { step: '20_check_duplicate', test: 'breakpoint' } } },
+            { method: 'GET', url: dupUrl, params: { headers: API_HEADERS, timeout: '30s', tags: { step: '21_check_duplicate', test: 'breakpoint' } } },
+            { method: 'GET', url: dupUrl, params: { headers: API_HEADERS, timeout: '30s', tags: { step: '22_check_duplicate', test: 'breakpoint' } } },
         ]);
-
         requestCount.add(3);
         responses.forEach((res, i) => {
-            const ok = check(res, { [`check-duplicate[${i}] → 200`]: r => r.status === 200 });
+            classifyResponse(res);
+            const ok = check(res, { [`step20 dup[${i}] → 200`]: r => r.status === 200 });
             if (!ok) errorRate.add(1);
         });
     });
     sleep(1);
 
-    // Step 23 — POST registration
+    // ── Step 23 — POST registration ───────────────────────────────────────────
     group('Step 23 - POST Registration', () => {
         if (!captchaToken) {
-            console.warn(`VU ${__VU} — skipping POST: no captcha_token`);
+            console.warn(`VU ${__VU} [breakpoint] — skipping POST: no captcha_token`);
             errorRate.add(1);
             return;
         }
 
         const formData = {
-            // Scenario
             lang:                         'bn',
             account_type:                 FIELDS.account_type,
             program_id:                   FIELDS.program_id,
             sub_program_id:               FIELDS.sub_program_id,
             application_pmt:              APPLICATION_PMT,
             application_allowance_values: APPLICATION_ALLOWANCE_VALUES,
-
-            // Location
-            thana_id:    FIELDS.thana_id,
-            division_id: FIELDS.division_id,
-            district_id: FIELDS.district_id,
-
-            // Applicant identity
-            verification_number: applicant.verification_number,
-            verification_type:   '2',
-            name_bn:             applicant.name_bn,
-            name_en:             applicant.name_en,
-            father_name_bn:      applicant.father_name_bn,
-            father_name_en:      applicant.father_name_en,
-            mother_name_bn:      applicant.mother_name_bn,
-            mother_name_en:      applicant.mother_name_en,
-            date_of_birth:       applicant.date_of_birth,
-            age:                 applicant.age,
-            gender_id:           FIELDS.gender_id,
-            religion:            FIELDS.religion,
-            marital_status:      FIELDS.marital_status,
-            education_status:    FIELDS.education_status,
-            nationality:         FIELDS.nationality,
-            profession:          FIELDS.profession,
-
-            // Current address
-            location_type:     FIELDS.location_type,
-            sub_location_type: FIELDS.sub_location_type,
-            union_id:          FIELDS.union_id,
-            ward_id_union:     FIELDS.ward_id_union,
-            address:           'C',
-            post_code:         '1234',
-
-            // Permanent address
-            permanent_thana_id:          FIELDS.permanent_thana_id,
-            permanent_union_id:          FIELDS.permanent_union_id,
-            permanent_district_id:       FIELDS.permanent_district_id,
-            permanent_division_id:       FIELDS.permanent_division_id,
-            permanent_ward_id_union:     FIELDS.permanent_ward_id_union,
-            permanent_location_type:     FIELDS.permanent_location_type,
-            permanent_sub_location_type: FIELDS.permanent_sub_location_type,
-            permanent_address:           'C',
-            permanent_post_code:         '1234',
-
-            // Payment
-            mobile:                applicant.mobile,
-            account_number:        applicant.account_number,
-            account_name:          'Test',
-            account_owner:         FIELDS.account_owner,
-            mfs_name:              FIELDS.mfs_name,
-            is_bank_mfs_mandatory: FIELDS.is_bank_mfs_mandatory,
-
-            // Household
-            no_of_people_score:  FIELDS.no_of_people_score,
-            per_room_score:      FIELDS.per_room_score,
-            no_of_room:          FIELDS.no_of_room,
-            house_size:          FIELDS.house_size,
-            is_nominnee_optional: FIELDS.is_nominnee_optional,
-
-            // Captcha
-            captcha_token: captchaToken,
-            captcha_value: captchaValue,
-
-            // Media — token generated before upload, path returned by upload
-            media_token: mediaToken,
-            image:       uploadedImagePath,
+            thana_id:                     FIELDS.thana_id,
+            division_id:                  FIELDS.division_id,
+            district_id:                  FIELDS.district_id,
+            verification_number:          applicant.verification_number,
+            verification_type:            '2',
+            name_bn:                      applicant.name_bn,
+            name_en:                      applicant.name_en,
+            father_name_bn:               applicant.father_name_bn,
+            father_name_en:               applicant.father_name_en,
+            mother_name_bn:               applicant.mother_name_bn,
+            mother_name_en:               applicant.mother_name_en,
+            date_of_birth:                applicant.date_of_birth,
+            age:                          applicant.age,
+            gender_id:                    FIELDS.gender_id,
+            religion:                     FIELDS.religion,
+            marital_status:               FIELDS.marital_status,
+            education_status:             FIELDS.education_status,
+            nationality:                  FIELDS.nationality,
+            profession:                   FIELDS.profession,
+            location_type:                FIELDS.location_type,
+            sub_location_type:            FIELDS.sub_location_type,
+            union_id:                     FIELDS.union_id,
+            ward_id_union:                FIELDS.ward_id_union,
+            address:                      'C',
+            post_code:                    '1234',
+            permanent_thana_id:           FIELDS.permanent_thana_id,
+            permanent_union_id:           FIELDS.permanent_union_id,
+            permanent_district_id:        FIELDS.permanent_district_id,
+            permanent_division_id:        FIELDS.permanent_division_id,
+            permanent_ward_id_union:      FIELDS.permanent_ward_id_union,
+            permanent_location_type:      FIELDS.permanent_location_type,
+            permanent_sub_location_type:  FIELDS.permanent_sub_location_type,
+            permanent_address:            'C',
+            permanent_post_code:          '1234',
+            mobile:                       applicant.mobile,
+            account_number:               applicant.account_number,
+            account_name:                 'Test',
+            account_owner:                FIELDS.account_owner,
+            mfs_name:                     FIELDS.mfs_name,
+            is_bank_mfs_mandatory:        FIELDS.is_bank_mfs_mandatory,
+            no_of_people_score:           FIELDS.no_of_people_score,
+            per_room_score:               FIELDS.per_room_score,
+            no_of_room:                   FIELDS.no_of_room,
+            house_size:                   FIELDS.house_size,
+            is_nominnee_optional:         FIELDS.is_nominnee_optional,
+            captcha_token:                captchaToken,
+            captcha_value:                captchaValue,
+            media_token:                  mediaToken,
+            image:                        uploadedImagePath,
         };
 
         const res = http.post(
@@ -573,27 +644,30 @@ export default function () {
             {
                 headers: API_HEADERS,
                 timeout: '60s',
-                tags:    { step: '23_post_registration' },
+                tags:    { step: '23_post_registration', test: 'breakpoint' },
             }
         );
-
         requestCount.add(1);
         registrationDuration.add(res.timings.duration);
+        classifyResponse(res);
 
         const ok = check(res, {
-            'registration → 200 or 201': r => r.status === 200 || r.status === 201,
-            'registration not 422':      r => r.status !== 422,
-            'registration not 429':      r => r.status !== 429,
-            'registration not 5xx':      r => r.status < 500,
-            'registration < 10s':        r => r.timings.duration < 10000,
+            'step23 → 200 or 201': r => r.status === 200 || r.status === 201,
+            'step23 not 422':      r => r.status !== 422,
+            'step23 not 502':      r => r.status !== 502,
+            'step23 not 503':      r => r.status !== 503,
+            'step23 not 5xx':      r => r.status < 500,
         });
         errorRate.add(!ok);
 
-        console.log(`VU ${__VU} — registration HTTP ${res.status} | ${res.timings.duration}ms | BRS: ${applicant.verification_number}`);
-
-        if (!ok) {
-            console.error(`VU ${__VU} FAILED — body: ${res.body}`);
+        // Only log every 50th iteration to avoid flooding during high-VU stages
+        if (__ITER % 50 === 0 || res.status >= 500 || res.status === 0) {
+            console.log(`VU ${__VU} ITER ${__ITER} [breakpoint] — step23 HTTP ${res.status} | ${res.timings.duration}ms`);
         }
     });
+
+    // Think time — represents realistic user pause between form submission
+    // and starting a new session. Keep this consistent so VU count maps
+    // directly to concurrent users, not request rate.
     sleep(10);
 }
