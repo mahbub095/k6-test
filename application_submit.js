@@ -20,7 +20,7 @@ import { Trend, Counter, Rate } from 'k6/metrics';
 
 const PAGE_URL    = 'https://stage.bhata.gov.bd';
 const API_URL     = 'https://stage-api.bhata.gov.bd';
-const GATEWAY_URL = 'https://gateway.bhata.gov.bd';
+// const GATEWAY_URL = 'https://gateway.bhata.gov.bd';
 
 const BEARER_TOKEN = __ENV.BEARER_TOKEN || '';
 const TEST_FUNC    = __ENV.TEST_FUNC    || 'rampUp';
@@ -33,17 +33,17 @@ const IMAGE_FILE = http.file(open('./test.jpg', 'b'), 'test.jpg', 'image/jpeg');
 // ---------------------------------------------------------------------------
 
 const RAMP_UP_STAGES = [
-    { duration: '2m', target: 1 },
-    // { duration: '3m', target: 50000 },
-    // { duration: '5m', target: 60000 },
+    { duration: '2m', target: 20000 },
+    { duration: '3m', target: 50000 },
+    { duration: '5m', target: 60000 },
 ];
 
 const STRESS_STAGES = [
     { duration: '1m', target: 1    },
-    // { duration: '2m', target: 2000 },
-    // { duration: '3m', target: 5000 },
-    // { duration: '5m', target: 8000 },
-    // { duration: '2m', target: 0    },
+    { duration: '2m', target: 2000 },
+    { duration: '3m', target: 5000 },
+    { duration: '5m', target: 8000 },
+    { duration: '2m', target: 0    },
 ];
 
 // ---------------------------------------------------------------------------
