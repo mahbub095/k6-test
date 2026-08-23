@@ -6,39 +6,26 @@
  *             breaks — returning 502 Bad Gateway, 503 Service Unavailable,
  *             connection refused, or timeout.
  *
- * LOCAL PERFORMANCE OPTIMISATIONS (why it was too slow before):
- *   ✦ Removed sleep(1) between every step — 7× sleep(1) = 7s dead time per
- *     iteration. Replaced with a single sleep(1) at the very end.
- *   ✦ Removed duplicate/stale sleep(10) that was left outside the function.
- *   ✦ Timeouts reduced: 30s→10s for GETs, 60s→20s for POSTs. A 30s timeout
- *     means a VU hangs for 30s before giving up — at high VU counts this
- *     creates a backlog that chokes the k6 process.
- *   ✦ http.setResponseCallback disabled — avoids per-response body scanning.
- *   ✦ discardResponseBodies: true on lookup GETs — we only need the status
- *     code, not the body. This cuts memory usage per VU significantly.
- *   ✦ Batch size for lookups kept at 14 — already optimal.
+ * Stages:
+ *   2m → 5 000 VUs   ramp up
+ *   3m → 8 000 VUs   hold at peak   ← breaking point observed here
+ *   2m →       0     drain / recovery
  *
- * Breakpoint Stages:
- *
- *   Stage  VUs     Duration   Cumulative
- *   ─────────────────────────────────────
- *   01     20 000   2m         2m    ← ramp up
- *   02     30 000   3m         5m    ← hold at peak
- *
- * Total duration: exactly 5 minutes (no abortOnFail — runs to completion)
+ * Total duration: exactly 7 minutes
  *
  * Key metrics (printed live every 10s):
- *   gateway_502_rate   → PRIMARY signal — rate of 502 Bad Gateway
- *   server_down_rate   → 502 + 503 + connection refused
- *   error_rate         → all non-2xx
- *   http_req_duration  → p95 response time
- *   vus                → active VU count when failure starts
+ *   gateway_502_rate  → PRIMARY signal — rate of 502 Bad Gateway
+ *   server_down_rate  → 502 + 503 + connection refused combined
+ *   error_rate        → all non-2xx responses
+ *   http_req_duration → p95 response time
+ *   vus               → active VU count when failure starts
  *
- * Run commands:
- *   k6 run -e BEARER_TOKEN=xxx application_submit_load.js
+ * Run:
+ *   k6 run --address="" -e BEARER_TOKEN=xxx application_submit_load.js
  *
- *   Save full results for post-analysis:
- *   k6 run --out json=results/breakpoint_result.json -e BEARER_TOKEN=xxx application_submit_load.js
+ * Save results for post-analysis:
+ *   k6 run --address="" --out json=results/breakpoint_result.json \
+ *          -e BEARER_TOKEN=xxx application_submit_load.js
  *
  * Requirements:
  *   - ./test.jpg must exist in the same folder as this script
@@ -54,65 +41,48 @@ import { Trend, Counter, Rate } from 'k6/metrics';
 // ---------------------------------------------------------------------------
 
 const PAGE_URL = 'https://stage.bhata.gov.bd';
-const API_URL = 'https://stage-api.bhata.gov.bd';
-const GATEWAY_URL = 'https://gateway.bhata.gov.bd';
+const API_URL  = 'https://stage-api.bhata.gov.bd';
+const GATEWAY_URL ='https://gateway.bhata.gov.bd';
 
 const BEARER_TOKEN = __ENV.BEARER_TOKEN || '';
 
-// Image pre-wrapped at init time — http.file() must NOT be called inside VU scope
+// Image loaded once at init time — must NOT be called inside VU function
 const IMAGE_FILE = http.file(open('./test.jpg', 'b'), 'test.jpg', 'image/jpeg');
 
 // ---------------------------------------------------------------------------
-// Stages — 2m ramp to 20 000 VUs, then 3m hold at 30 000 VUs
-// Total scheduled duration: 5 minutes
-//
-// NOTE: abortOnFail on gateway_502_rate / server_down_rate is DISABLED below.
-// When those thresholds had abortOnFail:true the test was stopping at ~1m 13s
-// because the server returned enough 502s during the Stage 01 ramp to trigger
-// the 50% threshold before the delayAbortEval window could protect it.
-// For a timed run that MUST complete the full 5 minutes, keep abortOnFail:false.
-// ---------------------------------------------------------------------------
-
-const BREAKPOINT_STAGES = [
-    { duration: '2m', target: 1 },
-    { duration: '3m', target: 2 },
-    { duration: '2m', target: 0 },
-];
-
-// ---------------------------------------------------------------------------
-// k6 options
+// k6 options — stages inlined directly, no separate constant needed
 // ---------------------------------------------------------------------------
 
 export const options = {
-    // Discard response bodies on all requests unless explicitly overridden.
-    // At high VU counts, storing every response body in memory is a major
-    // cause of the k6 process itself becoming the bottleneck.
+    // Discard response bodies globally — at high VU counts storing every
+    // response body is a major cause of the k6 process running out of memory.
+    // Steps that need the body (captcha, upload, registration) override this
+    // with responseType: 'text' at the individual request level.
     discardResponseBodies: true,
 
     scenarios: {
         breakpoint: {
-            executor: 'ramping-vus',
-            stages: BREAKPOINT_STAGES,
+            executor:         'ramping-vus',
             gracefulRampDown: '30s',
+            stages: [
+                { duration: '3m', target: 5000 },  // ramp up to 5 000 VUs
+                { duration: '5m', target: 8000 },  // hold at 8 000 VUs — peak / breaking point
+                { duration: '2m', target: 0    },  // drain — verify server recovers
+            ],
         },
     },
 
     thresholds: {
-        // Observation only — abortOnFail intentionally OFF so the test
-        // always runs its full 5 minutes regardless of 502 rate.
-        // Check these values in the summary after the run completes.
-        'gateway_502_rate': [
-            { threshold: 'rate<0.50', abortOnFail: false },
-        ],
-        'server_down_rate': [
-            { threshold: 'rate<0.50', abortOnFail: false },
-        ],
-        'error_rate': [{ threshold: 'rate<0.50', abortOnFail: false }],
-        'http_req_failed': [{ threshold: 'rate<0.50', abortOnFail: false }],
+        // All abortOnFail: false — test always runs its full 7 minutes.
+        // Read these values in the summary after the run completes.
+        'gateway_502_rate':      [{ threshold: 'rate<0.50',   abortOnFail: false }],
+        'server_down_rate':      [{ threshold: 'rate<0.50',   abortOnFail: false }],
+        'error_rate':            [{ threshold: 'rate<0.50',   abortOnFail: false }],
+        'http_req_failed':       [{ threshold: 'rate<0.50',   abortOnFail: false }],
         'registration_duration': [{ threshold: 'p(95)<30000', abortOnFail: false }],
         'media_upload_duration': [{ threshold: 'p(95)<20000', abortOnFail: false }],
-        'captcha_fetch_duration': [{ threshold: 'p(95)<10000', abortOnFail: false }],
-        'http_req_duration': [{ threshold: 'p(95)<30000', abortOnFail: false }],
+        'captcha_fetch_duration':[{ threshold: 'p(95)<10000', abortOnFail: false }],
+        'http_req_duration':     [{ threshold: 'p(95)<30000', abortOnFail: false }],
     },
 };
 
@@ -120,118 +90,118 @@ export const options = {
 // Custom metrics
 // ---------------------------------------------------------------------------
 
-const registrationDuration = new Trend('registration_duration', true);
-const mediaUploadDuration = new Trend('media_upload_duration', true);
+const registrationDuration = new Trend('registration_duration',  true);
+const mediaUploadDuration  = new Trend('media_upload_duration',  true);
 const captchaFetchDuration = new Trend('captcha_fetch_duration', true);
-const requestCount = new Counter('total_requests');
-const gateway502Rate = new Rate('gateway_502_rate');
-const serverDownRate = new Rate('server_down_rate');
-const errorRate = new Rate('error_rate');
+const requestCount         = new Counter('total_requests');
+const gateway502Rate       = new Rate('gateway_502_rate');
+const serverDownRate       = new Rate('server_down_rate');
+const errorRate            = new Rate('error_rate');
 
 // ---------------------------------------------------------------------------
 // Headers
 // ---------------------------------------------------------------------------
 
 const PAGE_HEADERS = {
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept':        'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Cache-Control': 'no-cache',
-    'Pragma': 'no-cache',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+    'Pragma':        'no-cache',
+    'User-Agent':    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
 };
 
 const API_HEADERS = {
-    Authorization: `Bearer ${BEARER_TOKEN}`,
-    Accept: 'application/json, text/plain, */*',
+    Authorization:    `Bearer ${BEARER_TOKEN}`,
+    Accept:           'application/json, text/plain, */*',
     'X-App-Language': 'bn',
-    'Cache-Control': 'no-cache',
-    'Pragma': 'no-cache',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+    'Cache-Control':  'no-cache',
+    'Pragma':         'no-cache',
+    'User-Agent':     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
 };
 
-// Lookup GETs — response body not needed, only status code
+// Shared params for batched lookup GETs — body discarded, only status needed
 const LOOKUP_PARAMS = {
-    headers: API_HEADERS,
-    timeout: '10s',
-    responseType: 'none',       // discard body immediately — saves memory
-    tags: { step: '06_lookups', test: 'breakpoint' },
+    headers:      API_HEADERS,
+    timeout:      '10s',
+    responseType: 'none',
+    tags:         { step: '06_lookups', test: 'breakpoint' },
 };
 
 // ---------------------------------------------------------------------------
-// Static field values
+// Static form field values
 // ---------------------------------------------------------------------------
 
 const FIELDS = {
-    program_id: '22',
-    sub_program_id: '8',
-    account_type: '2',
-    thana_id: '312',
-    division_id: '3',
-    district_id: '42',
-    union_id: '3240',
-    ward_id_union: '26612',
-    permanent_thana_id: '312',
-    permanent_union_id: '3240',
-    permanent_district_id: '42',
-    permanent_division_id: '3',
-    permanent_ward_id_union: '26612',
-    location_type: '2',
-    sub_location_type: '2',
-    permanent_location_type: '2',
+    program_id:                  '22',
+    sub_program_id:              '8',
+    account_type:                '2',
+    thana_id:                    '312',
+    division_id:                 '3',
+    district_id:                 '42',
+    union_id:                    '3240',
+    ward_id_union:               '26612',
+    permanent_thana_id:          '312',
+    permanent_union_id:          '3240',
+    permanent_district_id:       '42',
+    permanent_division_id:       '3',
+    permanent_ward_id_union:     '26612',
+    location_type:               '2',
+    sub_location_type:           '2',
+    permanent_location_type:     '2',
     permanent_sub_location_type: '2',
-    profession: '150',
-    nationality: '105',
-    gender_id: '23',
-    religion: '96',
-    marital_status: '101',
-    education_status: '25',
-    mfs_name: '1',
-    is_bank_mfs_mandatory: '1',
-    account_owner: '142',
-    no_of_people_score: '-28',
-    per_room_score: '-14',
-    no_of_room: '501',
-    house_size: '2',
-    is_nominnee_optional: '0',
+    profession:                  '150',
+    nationality:                 '105',
+    gender_id:                   '23',
+    religion:                    '96',
+    marital_status:              '101',
+    education_status:            '25',
+    mfs_name:                    '1',
+    is_bank_mfs_mandatory:       '1',
+    account_owner:               '142',
+    no_of_people_score:          '-28',
+    per_room_score:              '-14',
+    no_of_room:                  '501',
+    house_size:                  '2',
+    is_nominnee_optional:        '0',
 };
 
 const APPLICATION_PMT = JSON.stringify([
-    { variable_id: 576, sub_variables: 577 },
-    { variable_id: 530, sub_variables: 531 },
-    { variable_id: 571, sub_variables: 572 },
-    { variable_id: 1, sub_variables: 443 },
-    { variable_id: 7, sub_variables: 330 },
-    { variable_id: 12, sub_variables: 440 },
-    { variable_id: 14, sub_variables: 383 },
-    { variable_id: 18, sub_variables: 409 },
-    { variable_id: 36, sub_variables: 298 },
-    { variable_id: 33, sub_variables: 292 },
+    { variable_id: 576, sub_variables: 577   },
+    { variable_id: 530, sub_variables: 531   },
+    { variable_id: 571, sub_variables: 572   },
+    { variable_id: 1,   sub_variables: 443   },
+    { variable_id: 7,   sub_variables: 330   },
+    { variable_id: 12,  sub_variables: 440   },
+    { variable_id: 14,  sub_variables: 383   },
+    { variable_id: 18,  sub_variables: 409   },
+    { variable_id: 36,  sub_variables: 298   },
+    { variable_id: 33,  sub_variables: 292   },
     { variable_id: 536, sub_variables: [537] },
-    { variable_id: 393, sub_variables: 397 },
-    { variable_id: 30, sub_variables: 339 },
-    { variable_id: 40, sub_variables: 400 },
-    { variable_id: 548, sub_variables: 550 },
-    { variable_id: 579, sub_variables: 580 },
-    { variable_id: 41, sub_variables: 387 },
-    { variable_id: 567, sub_variables: 568 },
-    { variable_id: 25, sub_variables: 406 },
-    { variable_id: 29, sub_variables: 275 },
-    { variable_id: 22, sub_variables: 403 },
-    { variable_id: 595, sub_variables: 597 },
-    { variable_id: 47, sub_variables: [424] },
-    { variable_id: 500, sub_variables: 501 },
+    { variable_id: 393, sub_variables: 397   },
+    { variable_id: 30,  sub_variables: 339   },
+    { variable_id: 40,  sub_variables: 400   },
+    { variable_id: 548, sub_variables: 550   },
+    { variable_id: 579, sub_variables: 580   },
+    { variable_id: 41,  sub_variables: 387   },
+    { variable_id: 567, sub_variables: 568   },
+    { variable_id: 25,  sub_variables: 406   },
+    { variable_id: 29,  sub_variables: 275   },
+    { variable_id: 22,  sub_variables: 403   },
+    { variable_id: 595, sub_variables: 597   },
+    { variable_id: 47,  sub_variables: [424] },
+    { variable_id: 500, sub_variables: 501   },
 ]);
 
 const APPLICATION_ALLOWANCE_VALUES = JSON.stringify([
     { allowance_program_additional_fields_id: 100, allowance_program_additional_field_values_id: null, value: 'Test' },
     { allowance_program_additional_fields_id: 101, allowance_program_additional_field_values_id: null, value: 'TESt' },
-    { allowance_program_additional_fields_id: 102, allowance_program_additional_field_values_id: null, value: '123' },
-    { allowance_program_additional_fields_id: 103, allowance_program_additional_field_values_id: null, value: 'C' },
-    { allowance_program_additional_fields_id: 104, allowance_program_additional_field_values_id: 512, value: null },
-    { allowance_program_additional_fields_id: 87, allowance_program_additional_field_values_id: 548, value: null },
+    { allowance_program_additional_fields_id: 102, allowance_program_additional_field_values_id: null, value: '123'  },
+    { allowance_program_additional_fields_id: 103, allowance_program_additional_field_values_id: null, value: 'C'    },
+    { allowance_program_additional_fields_id: 104, allowance_program_additional_field_values_id: 512,  value: null   },
+    { allowance_program_additional_fields_id: 87,  allowance_program_additional_field_values_id: 548,  value: null   },
 ]);
 
 // ---------------------------------------------------------------------------
-// Helpers
+// uuidv4 — generates a random UUID used as media_token for each upload
 // ---------------------------------------------------------------------------
 
 function uuidv4() {
@@ -242,15 +212,15 @@ function uuidv4() {
 }
 
 // ---------------------------------------------------------------------------
-// Random unique number generator
-// Combines Date.now() + Math.random() + __VU so every call produces a
-// value that is both random-looking AND guaranteed unique across all VUs
-// and all iterations, even if two VUs call this at the exact same millisecond.
+// randomUniqueNumber — produces a number string of exact length that is
+// both random (unpredictable between runs) and unique (no two VUs or
+// iterations will produce the same value within a test run).
+//
+// Strategy: timestamp(7) + vu(2) + random(6) = 15 raw digits
+//   slice(-needed) takes exactly the last N digits → always correct length
 // ---------------------------------------------------------------------------
 
 function randomUniqueNumber(prefix, totalDigits) {
-    // timestamp(7) + vu(2) + random(6) = 15 raw digits
-    // slice(-needed) takes the last N digits → always exact length
     const tsPart   = String(Date.now() % 10000000).padStart(7, '0');
     const vuPart   = String(__VU % 100).padStart(2, '0');
     const randPart = String(Math.floor(Math.random() * 1000000)).padStart(6, '0');
@@ -259,32 +229,33 @@ function randomUniqueNumber(prefix, totalDigits) {
     return prefix + raw.slice(-needed);
 }
 
-// Collision-proof + random applicant data
-// account_number and mobile are regenerated fresh on every call using
-// Date.now() + Math.random() + __VU — unique AND unpredictable.
+// ---------------------------------------------------------------------------
+// buildApplicant — generates unique random applicant data per iteration
+//
+//   verification_number — exactly 17 digits, unique & random
+//   account_number      — exactly 11 digits, starts with 016
+//   mobile              — exactly 11 digits, starts with 017 (≠ account_number)
+// ---------------------------------------------------------------------------
+
 function buildApplicant() {
-    // account_number: BD mobile format — 11 digits, starts with 016
-    // Random + unique: timestamp(7) + vu(2) + rand(4) → last 8 digits taken
-    const account_number = randomUniqueNumber('016', 11);
+    const verification_number = randomUniqueNumber('19',  17);
+    const account_number      = randomUniqueNumber('016', 11);
+    const mobile              = randomUniqueNumber('017', 11);
 
-    // mobile: same scheme, different prefix (017) — always differs from account_number
-    const mobile = randomUniqueNumber('017', 11);
-
-    // verification_number: exactly 17 digits — '19'(2) + random 15 digits
-    // Uses randomUniqueNumber: timestamp(7) + vu(2) + rand(6) → 15 digits
-    const verification_number = randomUniqueNumber('19', 17);
-
-    const birthYear = 1950 + Math.floor(Math.random() * 51);
-    const birthMonth = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0');
-    const birthDay = String(1 + Math.floor(Math.random() * 28)).padStart(2, '0');
+    const birthYear     = 1950 + Math.floor(Math.random() * 51);
+    const birthMonth    = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0');
+    const birthDay      = String(1 + Math.floor(Math.random() * 28)).padStart(2, '0');
     const date_of_birth = `${birthYear}-${birthMonth}-${birthDay}`;
-    const age = String(2026 - birthYear);
+    const age           = String(2026 - birthYear);
 
     return {
-        verification_number, account_number, mobile,
-        date_of_birth, age,
-        name_bn: 'আবেদনকারীর নাম',
-        name_en: 'Application Name',
+        verification_number,
+        account_number,
+        mobile,
+        date_of_birth,
+        age,
+        name_bn:        'আবেদনকারীর নাম',
+        name_en:        'Application Name',
         father_name_bn: 'আবেদনকারীর পিতার নাম',
         father_name_en: 'Fathers Name',
         mother_name_bn: 'আবেদনকারীর মাতার নাম',
@@ -292,25 +263,29 @@ function buildApplicant() {
     };
 }
 
-// Classify every response — feeds the two primary breakpoint metrics
+// ---------------------------------------------------------------------------
+// classifyResponse — called after every HTTP request.
+// Records into gateway_502_rate and server_down_rate so the breakpoint
+// metrics stay accurate across all 23 steps.
+// ---------------------------------------------------------------------------
+
 function classifyResponse(res) {
-    const is502 = res.status === 502;
+    const is502  = res.status === 502;
     const isDown = res.status === 502 || res.status === 503 || res.status === 0;
 
     gateway502Rate.add(is502);
     serverDownRate.add(isDown);
 
-    if (is502) console.error(`[502] VU ${__VU} ITER ${__ITER} — ${res.url}`);
-    else if (res.status === 503) console.error(`[503] VU ${__VU} ITER ${__ITER} — ${res.url}`);
-    else if (res.status === 0) console.error(`[CONN_FAIL] VU ${__VU} ITER ${__ITER} — ${res.url}`);
+    if      (is502)              console.error(`[502]       VU ${__VU} ITER ${__ITER} — ${res.url}`);
+    else if (res.status === 503) console.error(`[503]       VU ${__VU} ITER ${__ITER} — ${res.url}`);
+    else if (res.status === 0)   console.error(`[CONN_FAIL] VU ${__VU} ITER ${__ITER} — ${res.url}`);
 }
 
 // ---------------------------------------------------------------------------
 // Main flow — full 23-step application submission
-// sleep(1) calls between steps REMOVED — they were adding 7s of dead time
-// per iteration and are not needed for a breakpoint test whose goal is to
-// maximise requests per second, not simulate user think-time.
-// A single sleep(1) remains at the end to prevent a hot loop on errors.
+// No sleep() between steps — maximises request throughput for breakpoint
+// testing. A single sleep(1) at the end prevents a tight error loop when
+// the server is fully down.
 // ---------------------------------------------------------------------------
 
 export default function () {
@@ -321,7 +296,7 @@ export default function () {
         const res = http.get(`${PAGE_URL}/online-application`, {
             headers: PAGE_HEADERS,
             timeout: '10s',
-            tags: { step: '01_get_page', test: 'breakpoint' },
+            tags:    { step: '01_get_page', test: 'breakpoint' },
         });
         requestCount.add(1);
         classifyResponse(res);
@@ -334,7 +309,7 @@ export default function () {
         const res = http.get(`${API_URL}/api/v1/global/getApplicationPageData?lang=bn`, {
             headers: API_HEADERS,
             timeout: '10s',
-            tags: { step: '02_page_data', test: 'breakpoint' },
+            tags:    { step: '02_page_data', test: 'breakpoint' },
         });
         requestCount.add(1);
         classifyResponse(res);
@@ -347,7 +322,7 @@ export default function () {
         const res = http.get(`${API_URL}/api/v1/global/online-application/disabled-areas/8?lang=bn`, {
             headers: API_HEADERS,
             timeout: '10s',
-            tags: { step: '03_disabled_areas', test: 'breakpoint' },
+            tags:    { step: '03_disabled_areas', test: 'breakpoint' },
         });
         requestCount.add(1);
         classifyResponse(res);
@@ -361,10 +336,10 @@ export default function () {
 
     group('Step 4 - GET Captcha', () => {
         const res = http.get(`${API_URL}/api/v1/captcha?lang=bn`, {
-            headers: API_HEADERS,
-            timeout: '10s',
-            responseType: 'text',           // need body to parse token
-            tags: { step: '04_captcha', test: 'breakpoint' },
+            headers:      API_HEADERS,
+            timeout:      '10s',
+            responseType: 'text',   // body needed to parse captcha_token
+            tags:         { step: '04_captcha', test: 'breakpoint' },
         });
         requestCount.add(1);
         captchaFetchDuration.add(res.timings.duration);
@@ -374,25 +349,25 @@ export default function () {
         if (!ok) { errorRate.add(1); return; }
 
         try {
-            const body = res.json();
+            const body   = res.json();
             captchaToken = body.captcha_token || body.token || '';
             captchaValue = body.captcha_value || body.value || '';
-        } catch (_) { /* non-JSON */ }
+        } catch (_) { /* non-JSON body */ }
     });
 
-    // ── Step 5 — POST media-upload ────────────────────────────────────────────
+    // ── Step 5 — POST media upload ────────────────────────────────────────────
     let uploadedImagePath = '';
-    const mediaToken = uuidv4();
+    const mediaToken      = uuidv4();
 
     group('Step 5 - POST Media Upload', () => {
         const res = http.post(
             `${API_URL}/api/v1/global/online-application/media-upload?lang=bn`,
             { field: 'image', file: IMAGE_FILE, token: mediaToken },
             {
-                headers: API_HEADERS,
-                timeout: '20s',
-                responseType: 'text',       // need body to parse image path
-                tags: { step: '05_media_upload', test: 'breakpoint' },
+                headers:      API_HEADERS,
+                timeout:      '20s',
+                responseType: 'text',   // body needed to parse uploaded image path
+                tags:         { step: '05_media_upload', test: 'breakpoint' },
             }
         );
         requestCount.add(1);
@@ -401,25 +376,25 @@ export default function () {
 
         const ok = check(res, {
             'step05 → 200 or 201': r => r.status === 200 || r.status === 201,
-            'step05 not 5xx': r => r.status < 500,
+            'step05 not 5xx':      r => r.status < 500,
         });
         errorRate.add(!ok);
 
         if (ok) {
             try {
-                const body = res.json();
+                const body        = res.json();
                 uploadedImagePath = body.path || (body.data && body.data.path) || body.url || '';
-            } catch (_) { /* non-JSON */ }
+            } catch (_) { /* non-JSON body */ }
         }
     });
 
+    // Cannot proceed without image path — registration will reject without it
     if (!uploadedImagePath) {
-        // Can't proceed without image path — short-circuit and sleep briefly
         sleep(1);
         return;
     }
 
-    // ── Steps 6–19 — Batched lookup GETs (bodies discarded) ──────────────────
+    // ── Steps 6–19 — Batched lookup GETs ─────────────────────────────────────
     group('Steps 6-19 - Lookup GETs', () => {
         const lookupUrls = [
             `${API_URL}/api/v1/global/district/get/3?lang=bn`,
@@ -449,7 +424,7 @@ export default function () {
         });
     });
 
-    // ── Steps 20–22 — Duplicate account check ────────────────────────────────
+    // ── Steps 20–22 — Duplicate account check (×3) ───────────────────────────
     group('Steps 20-22 - Duplicate Check', () => {
         const dupUrl =
             `${API_URL}/api/v1/global/online-application/check-duplicate-account` +
@@ -479,71 +454,71 @@ export default function () {
         }
 
         const formData = {
-            lang: 'bn',
-            account_type: FIELDS.account_type,
-            program_id: FIELDS.program_id,
-            sub_program_id: FIELDS.sub_program_id,
-            application_pmt: APPLICATION_PMT,
+            lang:                         'bn',
+            account_type:                 FIELDS.account_type,
+            program_id:                   FIELDS.program_id,
+            sub_program_id:               FIELDS.sub_program_id,
+            application_pmt:              APPLICATION_PMT,
             application_allowance_values: APPLICATION_ALLOWANCE_VALUES,
-            thana_id: FIELDS.thana_id,
-            division_id: FIELDS.division_id,
-            district_id: FIELDS.district_id,
-            verification_number: applicant.verification_number,
-            verification_type: '2',
-            name_bn: applicant.name_bn,
-            name_en: applicant.name_en,
-            father_name_bn: applicant.father_name_bn,
-            father_name_en: applicant.father_name_en,
-            mother_name_bn: applicant.mother_name_bn,
-            mother_name_en: applicant.mother_name_en,
-            date_of_birth: applicant.date_of_birth,
-            age: applicant.age,
-            gender_id: FIELDS.gender_id,
-            religion: FIELDS.religion,
-            marital_status: FIELDS.marital_status,
-            education_status: FIELDS.education_status,
-            nationality: FIELDS.nationality,
-            profession: FIELDS.profession,
-            location_type: FIELDS.location_type,
-            sub_location_type: FIELDS.sub_location_type,
-            union_id: FIELDS.union_id,
-            ward_id_union: FIELDS.ward_id_union,
-            address: 'C',
-            post_code: '1234',
-            permanent_thana_id: FIELDS.permanent_thana_id,
-            permanent_union_id: FIELDS.permanent_union_id,
-            permanent_district_id: FIELDS.permanent_district_id,
-            permanent_division_id: FIELDS.permanent_division_id,
-            permanent_ward_id_union: FIELDS.permanent_ward_id_union,
-            permanent_location_type: FIELDS.permanent_location_type,
-            permanent_sub_location_type: FIELDS.permanent_sub_location_type,
-            permanent_address: 'C',
-            permanent_post_code: '1234',
-            mobile: applicant.mobile,
-            account_number: applicant.account_number,
-            account_name: 'Test',
-            account_owner: FIELDS.account_owner,
-            mfs_name: FIELDS.mfs_name,
-            is_bank_mfs_mandatory: FIELDS.is_bank_mfs_mandatory,
-            no_of_people_score: FIELDS.no_of_people_score,
-            per_room_score: FIELDS.per_room_score,
-            no_of_room: FIELDS.no_of_room,
-            house_size: FIELDS.house_size,
-            is_nominnee_optional: FIELDS.is_nominnee_optional,
-            captcha_token: captchaToken,
-            captcha_value: captchaValue,
-            media_token: mediaToken,
-            image: uploadedImagePath,
+            thana_id:                     FIELDS.thana_id,
+            division_id:                  FIELDS.division_id,
+            district_id:                  FIELDS.district_id,
+            verification_number:          applicant.verification_number,
+            verification_type:            '2',
+            name_bn:                      applicant.name_bn,
+            name_en:                      applicant.name_en,
+            father_name_bn:               applicant.father_name_bn,
+            father_name_en:               applicant.father_name_en,
+            mother_name_bn:               applicant.mother_name_bn,
+            mother_name_en:               applicant.mother_name_en,
+            date_of_birth:                applicant.date_of_birth,
+            age:                          applicant.age,
+            gender_id:                    FIELDS.gender_id,
+            religion:                     FIELDS.religion,
+            marital_status:               FIELDS.marital_status,
+            education_status:             FIELDS.education_status,
+            nationality:                  FIELDS.nationality,
+            profession:                   FIELDS.profession,
+            location_type:                FIELDS.location_type,
+            sub_location_type:            FIELDS.sub_location_type,
+            union_id:                     FIELDS.union_id,
+            ward_id_union:                FIELDS.ward_id_union,
+            address:                      'C',
+            post_code:                    '1234',
+            permanent_thana_id:           FIELDS.permanent_thana_id,
+            permanent_union_id:           FIELDS.permanent_union_id,
+            permanent_district_id:        FIELDS.permanent_district_id,
+            permanent_division_id:        FIELDS.permanent_division_id,
+            permanent_ward_id_union:      FIELDS.permanent_ward_id_union,
+            permanent_location_type:      FIELDS.permanent_location_type,
+            permanent_sub_location_type:  FIELDS.permanent_sub_location_type,
+            permanent_address:            'C',
+            permanent_post_code:          '1234',
+            mobile:                       applicant.mobile,
+            account_number:               applicant.account_number,
+            account_name:                 'Test',
+            account_owner:                FIELDS.account_owner,
+            mfs_name:                     FIELDS.mfs_name,
+            is_bank_mfs_mandatory:        FIELDS.is_bank_mfs_mandatory,
+            no_of_people_score:           FIELDS.no_of_people_score,
+            per_room_score:               FIELDS.per_room_score,
+            no_of_room:                   FIELDS.no_of_room,
+            house_size:                   FIELDS.house_size,
+            is_nominnee_optional:         FIELDS.is_nominnee_optional,
+            captcha_token:                captchaToken,
+            captcha_value:                captchaValue,
+            media_token:                  mediaToken,
+            image:                        uploadedImagePath,
         };
 
         const res = http.post(
             `${API_URL}/api/v1/global/online-application/registration?lang=bn`,
             formData,
             {
-                headers: API_HEADERS,
-                timeout: '20s',
-                responseType: 'text',       // need body for error logging
-                tags: { step: '23_post_registration', test: 'breakpoint' },
+                headers:      API_HEADERS,
+                timeout:      '20s',
+                responseType: 'text',   // body needed for failure logging
+                tags:         { step: '23_post_registration', test: 'breakpoint' },
             }
         );
         requestCount.add(1);
@@ -552,17 +527,17 @@ export default function () {
 
         const ok = check(res, {
             'step23 → 200 or 201': r => r.status === 200 || r.status === 201,
-            'step23 not 422': r => r.status !== 422,
-            'step23 not 5xx': r => r.status < 500,
+            'step23 not 422':      r => r.status !== 422,
+            'step23 not 5xx':      r => r.status < 500,
         });
         errorRate.add(!ok);
 
-        // Log every 100th iter + all failures — avoids console flood at 40k VUs
+        // Log every 100th iteration + every failure to avoid flooding the console
         if (__ITER % 100 === 0 || res.status >= 500 || res.status === 0) {
             console.log(`VU ${__VU} ITER ${__ITER} — step23 HTTP ${res.status} | ${res.timings.duration}ms`);
         }
     });
 
-    // Single sleep at end — prevents a hot error loop if server is fully down
+    // Prevents a tight loop when the server is fully down
     sleep(1);
 }
