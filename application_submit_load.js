@@ -41,8 +41,8 @@ import { Trend, Counter, Rate } from 'k6/metrics';
 // ---------------------------------------------------------------------------
 
 const PAGE_URL = 'https://stage.bhata.gov.bd';
-const API_URL  = 'https://stage-api.bhata.gov.bd';
-const GATEWAY_URL ='https://gateway.bhata.gov.bd';
+const API_URL = 'https://stage-api.bhata.gov.bd';
+const GATEWAY_URL = 'https://gateway.bhata.gov.bd';
 
 const BEARER_TOKEN = __ENV.BEARER_TOKEN || '';
 
@@ -62,12 +62,14 @@ export const options = {
 
     scenarios: {
         breakpoint: {
-            executor:         'ramping-vus',
+            executor: 'ramping-vus',
             gracefulRampDown: '30s',
             stages: [
-                { duration: '3m', target: 5000 },  // ramp up to 5 000 VUs
-                { duration: '5m', target: 8000 },  // hold at 8 000 VUs — peak / breaking point
-                { duration: '2m', target: 0    },  // drain — verify server recovers
+                { duration: '3m', target: 2000 },  // Ramp to 2,000 VUs
+                { duration: '3m', target: 5000 },  // Ramp to 5,000 VUs
+                { duration: '5m', target: 5000 },  // Hold 5,000 VUs
+                { duration: '2m', target: 8000 },  // Ramp to 8,000 VUs
+                { duration: '2m', target: 0 },     // Ramp down
             ],
         },
     },
@@ -75,14 +77,14 @@ export const options = {
     thresholds: {
         // All abortOnFail: false — test always runs its full 7 minutes.
         // Read these values in the summary after the run completes.
-        'gateway_502_rate':      [{ threshold: 'rate<0.50',   abortOnFail: false }],
-        'server_down_rate':      [{ threshold: 'rate<0.50',   abortOnFail: false }],
-        'error_rate':            [{ threshold: 'rate<0.50',   abortOnFail: false }],
-        'http_req_failed':       [{ threshold: 'rate<0.50',   abortOnFail: false }],
+        'gateway_502_rate': [{ threshold: 'rate<0.50', abortOnFail: false }],
+        'server_down_rate': [{ threshold: 'rate<0.50', abortOnFail: false }],
+        'error_rate': [{ threshold: 'rate<0.50', abortOnFail: false }],
+        'http_req_failed': [{ threshold: 'rate<0.50', abortOnFail: false }],
         'registration_duration': [{ threshold: 'p(95)<30000', abortOnFail: false }],
         'media_upload_duration': [{ threshold: 'p(95)<20000', abortOnFail: false }],
-        'captcha_fetch_duration':[{ threshold: 'p(95)<10000', abortOnFail: false }],
-        'http_req_duration':     [{ threshold: 'p(95)<30000', abortOnFail: false }],
+        'captcha_fetch_duration': [{ threshold: 'p(95)<10000', abortOnFail: false }],
+        'http_req_duration': [{ threshold: 'p(95)<30000', abortOnFail: false }],
     },
 };
 
@@ -90,40 +92,40 @@ export const options = {
 // Custom metrics
 // ---------------------------------------------------------------------------
 
-const registrationDuration = new Trend('registration_duration',  true);
-const mediaUploadDuration  = new Trend('media_upload_duration',  true);
+const registrationDuration = new Trend('registration_duration', true);
+const mediaUploadDuration = new Trend('media_upload_duration', true);
 const captchaFetchDuration = new Trend('captcha_fetch_duration', true);
-const requestCount         = new Counter('total_requests');
-const gateway502Rate       = new Rate('gateway_502_rate');
-const serverDownRate       = new Rate('server_down_rate');
-const errorRate            = new Rate('error_rate');
+const requestCount = new Counter('total_requests');
+const gateway502Rate = new Rate('gateway_502_rate');
+const serverDownRate = new Rate('server_down_rate');
+const errorRate = new Rate('error_rate');
 
 // ---------------------------------------------------------------------------
 // Headers
 // ---------------------------------------------------------------------------
 
 const PAGE_HEADERS = {
-    'Accept':        'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Cache-Control': 'no-cache',
-    'Pragma':        'no-cache',
-    'User-Agent':    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+    'Pragma': 'no-cache',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
 };
 
 const API_HEADERS = {
-    Authorization:    `Bearer ${BEARER_TOKEN}`,
-    Accept:           'application/json, text/plain, */*',
+    Authorization: `Bearer ${BEARER_TOKEN}`,
+    Accept: 'application/json, text/plain, */*',
     'X-App-Language': 'bn',
-    'Cache-Control':  'no-cache',
-    'Pragma':         'no-cache',
-    'User-Agent':     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
 };
 
 // Shared params for batched lookup GETs — body discarded, only status needed
 const LOOKUP_PARAMS = {
-    headers:      API_HEADERS,
-    timeout:      '10s',
+    headers: API_HEADERS,
+    timeout: '10s',
     responseType: 'none',
-    tags:         { step: '06_lookups', test: 'breakpoint' },
+    tags: { step: '06_lookups', test: 'breakpoint' },
 };
 
 // ---------------------------------------------------------------------------
@@ -131,73 +133,73 @@ const LOOKUP_PARAMS = {
 // ---------------------------------------------------------------------------
 
 const FIELDS = {
-    program_id:                  '22',
-    sub_program_id:              '8',
-    account_type:                '2',
-    thana_id:                    '312',
-    division_id:                 '3',
-    district_id:                 '42',
-    union_id:                    '3240',
-    ward_id_union:               '26612',
-    permanent_thana_id:          '312',
-    permanent_union_id:          '3240',
-    permanent_district_id:       '42',
-    permanent_division_id:       '3',
-    permanent_ward_id_union:     '26612',
-    location_type:               '2',
-    sub_location_type:           '2',
-    permanent_location_type:     '2',
+    program_id: '22',
+    sub_program_id: '8',
+    account_type: '2',
+    thana_id: '312',
+    division_id: '3',
+    district_id: '42',
+    union_id: '3240',
+    ward_id_union: '26612',
+    permanent_thana_id: '312',
+    permanent_union_id: '3240',
+    permanent_district_id: '42',
+    permanent_division_id: '3',
+    permanent_ward_id_union: '26612',
+    location_type: '2',
+    sub_location_type: '2',
+    permanent_location_type: '2',
     permanent_sub_location_type: '2',
-    profession:                  '150',
-    nationality:                 '105',
-    gender_id:                   '23',
-    religion:                    '96',
-    marital_status:              '101',
-    education_status:            '25',
-    mfs_name:                    '1',
-    is_bank_mfs_mandatory:       '1',
-    account_owner:               '142',
-    no_of_people_score:          '-28',
-    per_room_score:              '-14',
-    no_of_room:                  '501',
-    house_size:                  '2',
-    is_nominnee_optional:        '0',
+    profession: '150',
+    nationality: '105',
+    gender_id: '23',
+    religion: '96',
+    marital_status: '101',
+    education_status: '25',
+    mfs_name: '1',
+    is_bank_mfs_mandatory: '1',
+    account_owner: '142',
+    no_of_people_score: '-28',
+    per_room_score: '-14',
+    no_of_room: '501',
+    house_size: '2',
+    is_nominnee_optional: '0',
 };
 
 const APPLICATION_PMT = JSON.stringify([
-    { variable_id: 576, sub_variables: 577   },
-    { variable_id: 530, sub_variables: 531   },
-    { variable_id: 571, sub_variables: 572   },
-    { variable_id: 1,   sub_variables: 443   },
-    { variable_id: 7,   sub_variables: 330   },
-    { variable_id: 12,  sub_variables: 440   },
-    { variable_id: 14,  sub_variables: 383   },
-    { variable_id: 18,  sub_variables: 409   },
-    { variable_id: 36,  sub_variables: 298   },
-    { variable_id: 33,  sub_variables: 292   },
+    { variable_id: 576, sub_variables: 577 },
+    { variable_id: 530, sub_variables: 531 },
+    { variable_id: 571, sub_variables: 572 },
+    { variable_id: 1, sub_variables: 443 },
+    { variable_id: 7, sub_variables: 330 },
+    { variable_id: 12, sub_variables: 440 },
+    { variable_id: 14, sub_variables: 383 },
+    { variable_id: 18, sub_variables: 409 },
+    { variable_id: 36, sub_variables: 298 },
+    { variable_id: 33, sub_variables: 292 },
     { variable_id: 536, sub_variables: [537] },
-    { variable_id: 393, sub_variables: 397   },
-    { variable_id: 30,  sub_variables: 339   },
-    { variable_id: 40,  sub_variables: 400   },
-    { variable_id: 548, sub_variables: 550   },
-    { variable_id: 579, sub_variables: 580   },
-    { variable_id: 41,  sub_variables: 387   },
-    { variable_id: 567, sub_variables: 568   },
-    { variable_id: 25,  sub_variables: 406   },
-    { variable_id: 29,  sub_variables: 275   },
-    { variable_id: 22,  sub_variables: 403   },
-    { variable_id: 595, sub_variables: 597   },
-    { variable_id: 47,  sub_variables: [424] },
-    { variable_id: 500, sub_variables: 501   },
+    { variable_id: 393, sub_variables: 397 },
+    { variable_id: 30, sub_variables: 339 },
+    { variable_id: 40, sub_variables: 400 },
+    { variable_id: 548, sub_variables: 550 },
+    { variable_id: 579, sub_variables: 580 },
+    { variable_id: 41, sub_variables: 387 },
+    { variable_id: 567, sub_variables: 568 },
+    { variable_id: 25, sub_variables: 406 },
+    { variable_id: 29, sub_variables: 275 },
+    { variable_id: 22, sub_variables: 403 },
+    { variable_id: 595, sub_variables: 597 },
+    { variable_id: 47, sub_variables: [424] },
+    { variable_id: 500, sub_variables: 501 },
 ]);
 
 const APPLICATION_ALLOWANCE_VALUES = JSON.stringify([
     { allowance_program_additional_fields_id: 100, allowance_program_additional_field_values_id: null, value: 'Test' },
     { allowance_program_additional_fields_id: 101, allowance_program_additional_field_values_id: null, value: 'TESt' },
-    { allowance_program_additional_fields_id: 102, allowance_program_additional_field_values_id: null, value: '123'  },
-    { allowance_program_additional_fields_id: 103, allowance_program_additional_field_values_id: null, value: 'C'    },
-    { allowance_program_additional_fields_id: 104, allowance_program_additional_field_values_id: 512,  value: null   },
-    { allowance_program_additional_fields_id: 87,  allowance_program_additional_field_values_id: 548,  value: null   },
+    { allowance_program_additional_fields_id: 102, allowance_program_additional_field_values_id: null, value: '123' },
+    { allowance_program_additional_fields_id: 103, allowance_program_additional_field_values_id: null, value: 'C' },
+    { allowance_program_additional_fields_id: 104, allowance_program_additional_field_values_id: 512, value: null },
+    { allowance_program_additional_fields_id: 87, allowance_program_additional_field_values_id: 548, value: null },
 ]);
 
 // ---------------------------------------------------------------------------
@@ -221,11 +223,11 @@ function uuidv4() {
 // ---------------------------------------------------------------------------
 
 function randomUniqueNumber(prefix, totalDigits) {
-    const tsPart   = String(Date.now() % 10000000).padStart(7, '0');
-    const vuPart   = String(__VU % 100).padStart(2, '0');
+    const tsPart = String(Date.now() % 10000000).padStart(7, '0');
+    const vuPart = String(__VU % 100).padStart(2, '0');
     const randPart = String(Math.floor(Math.random() * 1000000)).padStart(6, '0');
-    const raw      = tsPart + vuPart + randPart;
-    const needed   = totalDigits - prefix.length;
+    const raw = tsPart + vuPart + randPart;
+    const needed = totalDigits - prefix.length;
     return prefix + raw.slice(-needed);
 }
 
@@ -238,15 +240,15 @@ function randomUniqueNumber(prefix, totalDigits) {
 // ---------------------------------------------------------------------------
 
 function buildApplicant() {
-    const verification_number = randomUniqueNumber('19',  17);
-    const account_number      = randomUniqueNumber('016', 11);
-    const mobile              = randomUniqueNumber('017', 11);
+    const verification_number = randomUniqueNumber('19', 17);
+    const account_number = randomUniqueNumber('016', 11);
+    const mobile = randomUniqueNumber('017', 11);
 
-    const birthYear     = 1950 + Math.floor(Math.random() * 51);
-    const birthMonth    = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0');
-    const birthDay      = String(1 + Math.floor(Math.random() * 28)).padStart(2, '0');
+    const birthYear = 1950 + Math.floor(Math.random() * 51);
+    const birthMonth = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0');
+    const birthDay = String(1 + Math.floor(Math.random() * 28)).padStart(2, '0');
     const date_of_birth = `${birthYear}-${birthMonth}-${birthDay}`;
-    const age           = String(2026 - birthYear);
+    const age = String(2026 - birthYear);
 
     return {
         verification_number,
@@ -254,8 +256,8 @@ function buildApplicant() {
         mobile,
         date_of_birth,
         age,
-        name_bn:        'আবেদনকারীর নাম',
-        name_en:        'Application Name',
+        name_bn: 'আবেদনকারীর নাম',
+        name_en: 'Application Name',
         father_name_bn: 'আবেদনকারীর পিতার নাম',
         father_name_en: 'Fathers Name',
         mother_name_bn: 'আবেদনকারীর মাতার নাম',
@@ -270,15 +272,15 @@ function buildApplicant() {
 // ---------------------------------------------------------------------------
 
 function classifyResponse(res) {
-    const is502  = res.status === 502;
+    const is502 = res.status === 502;
     const isDown = res.status === 502 || res.status === 503 || res.status === 0;
 
     gateway502Rate.add(is502);
     serverDownRate.add(isDown);
 
-    if      (is502)              console.error(`[502]       VU ${__VU} ITER ${__ITER} — ${res.url}`);
+    if (is502) console.error(`[502]       VU ${__VU} ITER ${__ITER} — ${res.url}`);
     else if (res.status === 503) console.error(`[503]       VU ${__VU} ITER ${__ITER} — ${res.url}`);
-    else if (res.status === 0)   console.error(`[CONN_FAIL] VU ${__VU} ITER ${__ITER} — ${res.url}`);
+    else if (res.status === 0) console.error(`[CONN_FAIL] VU ${__VU} ITER ${__ITER} — ${res.url}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -296,7 +298,7 @@ export default function () {
         const res = http.get(`${PAGE_URL}/online-application`, {
             headers: PAGE_HEADERS,
             timeout: '10s',
-            tags:    { step: '01_get_page', test: 'breakpoint' },
+            tags: { step: '01_get_page', test: 'breakpoint' },
         });
         requestCount.add(1);
         classifyResponse(res);
@@ -309,7 +311,7 @@ export default function () {
         const res = http.get(`${API_URL}/api/v1/global/getApplicationPageData?lang=bn`, {
             headers: API_HEADERS,
             timeout: '10s',
-            tags:    { step: '02_page_data', test: 'breakpoint' },
+            tags: { step: '02_page_data', test: 'breakpoint' },
         });
         requestCount.add(1);
         classifyResponse(res);
@@ -322,7 +324,7 @@ export default function () {
         const res = http.get(`${API_URL}/api/v1/global/online-application/disabled-areas/8?lang=bn`, {
             headers: API_HEADERS,
             timeout: '10s',
-            tags:    { step: '03_disabled_areas', test: 'breakpoint' },
+            tags: { step: '03_disabled_areas', test: 'breakpoint' },
         });
         requestCount.add(1);
         classifyResponse(res);
@@ -336,10 +338,10 @@ export default function () {
 
     group('Step 4 - GET Captcha', () => {
         const res = http.get(`${API_URL}/api/v1/captcha?lang=bn`, {
-            headers:      API_HEADERS,
-            timeout:      '10s',
+            headers: API_HEADERS,
+            timeout: '10s',
             responseType: 'text',   // body needed to parse captcha_token
-            tags:         { step: '04_captcha', test: 'breakpoint' },
+            tags: { step: '04_captcha', test: 'breakpoint' },
         });
         requestCount.add(1);
         captchaFetchDuration.add(res.timings.duration);
@@ -349,7 +351,7 @@ export default function () {
         if (!ok) { errorRate.add(1); return; }
 
         try {
-            const body   = res.json();
+            const body = res.json();
             captchaToken = body.captcha_token || body.token || '';
             captchaValue = body.captcha_value || body.value || '';
         } catch (_) { /* non-JSON body */ }
@@ -357,17 +359,17 @@ export default function () {
 
     // ── Step 5 — POST media upload ────────────────────────────────────────────
     let uploadedImagePath = '';
-    const mediaToken      = uuidv4();
+    const mediaToken = uuidv4();
 
     group('Step 5 - POST Media Upload', () => {
         const res = http.post(
             `${API_URL}/api/v1/global/online-application/media-upload?lang=bn`,
             { field: 'image', file: IMAGE_FILE, token: mediaToken },
             {
-                headers:      API_HEADERS,
-                timeout:      '20s',
+                headers: API_HEADERS,
+                timeout: '20s',
                 responseType: 'text',   // body needed to parse uploaded image path
-                tags:         { step: '05_media_upload', test: 'breakpoint' },
+                tags: { step: '05_media_upload', test: 'breakpoint' },
             }
         );
         requestCount.add(1);
@@ -376,13 +378,13 @@ export default function () {
 
         const ok = check(res, {
             'step05 → 200 or 201': r => r.status === 200 || r.status === 201,
-            'step05 not 5xx':      r => r.status < 500,
+            'step05 not 5xx': r => r.status < 500,
         });
         errorRate.add(!ok);
 
         if (ok) {
             try {
-                const body        = res.json();
+                const body = res.json();
                 uploadedImagePath = body.path || (body.data && body.data.path) || body.url || '';
             } catch (_) { /* non-JSON body */ }
         }
@@ -454,71 +456,71 @@ export default function () {
         }
 
         const formData = {
-            lang:                         'bn',
-            account_type:                 FIELDS.account_type,
-            program_id:                   FIELDS.program_id,
-            sub_program_id:               FIELDS.sub_program_id,
-            application_pmt:              APPLICATION_PMT,
+            lang: 'bn',
+            account_type: FIELDS.account_type,
+            program_id: FIELDS.program_id,
+            sub_program_id: FIELDS.sub_program_id,
+            application_pmt: APPLICATION_PMT,
             application_allowance_values: APPLICATION_ALLOWANCE_VALUES,
-            thana_id:                     FIELDS.thana_id,
-            division_id:                  FIELDS.division_id,
-            district_id:                  FIELDS.district_id,
-            verification_number:          applicant.verification_number,
-            verification_type:            '2',
-            name_bn:                      applicant.name_bn,
-            name_en:                      applicant.name_en,
-            father_name_bn:               applicant.father_name_bn,
-            father_name_en:               applicant.father_name_en,
-            mother_name_bn:               applicant.mother_name_bn,
-            mother_name_en:               applicant.mother_name_en,
-            date_of_birth:                applicant.date_of_birth,
-            age:                          applicant.age,
-            gender_id:                    FIELDS.gender_id,
-            religion:                     FIELDS.religion,
-            marital_status:               FIELDS.marital_status,
-            education_status:             FIELDS.education_status,
-            nationality:                  FIELDS.nationality,
-            profession:                   FIELDS.profession,
-            location_type:                FIELDS.location_type,
-            sub_location_type:            FIELDS.sub_location_type,
-            union_id:                     FIELDS.union_id,
-            ward_id_union:                FIELDS.ward_id_union,
-            address:                      'C',
-            post_code:                    '1234',
-            permanent_thana_id:           FIELDS.permanent_thana_id,
-            permanent_union_id:           FIELDS.permanent_union_id,
-            permanent_district_id:        FIELDS.permanent_district_id,
-            permanent_division_id:        FIELDS.permanent_division_id,
-            permanent_ward_id_union:      FIELDS.permanent_ward_id_union,
-            permanent_location_type:      FIELDS.permanent_location_type,
-            permanent_sub_location_type:  FIELDS.permanent_sub_location_type,
-            permanent_address:            'C',
-            permanent_post_code:          '1234',
-            mobile:                       applicant.mobile,
-            account_number:               applicant.account_number,
-            account_name:                 'Test',
-            account_owner:                FIELDS.account_owner,
-            mfs_name:                     FIELDS.mfs_name,
-            is_bank_mfs_mandatory:        FIELDS.is_bank_mfs_mandatory,
-            no_of_people_score:           FIELDS.no_of_people_score,
-            per_room_score:               FIELDS.per_room_score,
-            no_of_room:                   FIELDS.no_of_room,
-            house_size:                   FIELDS.house_size,
-            is_nominnee_optional:         FIELDS.is_nominnee_optional,
-            captcha_token:                captchaToken,
-            captcha_value:                captchaValue,
-            media_token:                  mediaToken,
-            image:                        uploadedImagePath,
+            thana_id: FIELDS.thana_id,
+            division_id: FIELDS.division_id,
+            district_id: FIELDS.district_id,
+            verification_number: applicant.verification_number,
+            verification_type: '2',
+            name_bn: applicant.name_bn,
+            name_en: applicant.name_en,
+            father_name_bn: applicant.father_name_bn,
+            father_name_en: applicant.father_name_en,
+            mother_name_bn: applicant.mother_name_bn,
+            mother_name_en: applicant.mother_name_en,
+            date_of_birth: applicant.date_of_birth,
+            age: applicant.age,
+            gender_id: FIELDS.gender_id,
+            religion: FIELDS.religion,
+            marital_status: FIELDS.marital_status,
+            education_status: FIELDS.education_status,
+            nationality: FIELDS.nationality,
+            profession: FIELDS.profession,
+            location_type: FIELDS.location_type,
+            sub_location_type: FIELDS.sub_location_type,
+            union_id: FIELDS.union_id,
+            ward_id_union: FIELDS.ward_id_union,
+            address: 'C',
+            post_code: '1234',
+            permanent_thana_id: FIELDS.permanent_thana_id,
+            permanent_union_id: FIELDS.permanent_union_id,
+            permanent_district_id: FIELDS.permanent_district_id,
+            permanent_division_id: FIELDS.permanent_division_id,
+            permanent_ward_id_union: FIELDS.permanent_ward_id_union,
+            permanent_location_type: FIELDS.permanent_location_type,
+            permanent_sub_location_type: FIELDS.permanent_sub_location_type,
+            permanent_address: 'C',
+            permanent_post_code: '1234',
+            mobile: applicant.mobile,
+            account_number: applicant.account_number,
+            account_name: 'Test',
+            account_owner: FIELDS.account_owner,
+            mfs_name: FIELDS.mfs_name,
+            is_bank_mfs_mandatory: FIELDS.is_bank_mfs_mandatory,
+            no_of_people_score: FIELDS.no_of_people_score,
+            per_room_score: FIELDS.per_room_score,
+            no_of_room: FIELDS.no_of_room,
+            house_size: FIELDS.house_size,
+            is_nominnee_optional: FIELDS.is_nominnee_optional,
+            captcha_token: captchaToken,
+            captcha_value: captchaValue,
+            media_token: mediaToken,
+            image: uploadedImagePath,
         };
 
         const res = http.post(
             `${API_URL}/api/v1/global/online-application/registration?lang=bn`,
             formData,
             {
-                headers:      API_HEADERS,
-                timeout:      '20s',
+                headers: API_HEADERS,
+                timeout: '20s',
                 responseType: 'text',   // body needed for failure logging
-                tags:         { step: '23_post_registration', test: 'breakpoint' },
+                tags: { step: '23_post_registration', test: 'breakpoint' },
             }
         );
         requestCount.add(1);
@@ -527,8 +529,8 @@ export default function () {
 
         const ok = check(res, {
             'step23 → 200 or 201': r => r.status === 200 || r.status === 201,
-            'step23 not 422':      r => r.status !== 422,
-            'step23 not 5xx':      r => r.status < 500,
+            'step23 not 422': r => r.status !== 422,
+            'step23 not 5xx': r => r.status < 500,
         });
         errorRate.add(!ok);
 
