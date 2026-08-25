@@ -1,36 +1,3 @@
-/**
- * Application Submit — Stress Test
- *
- * Test Type : Stress Test
- * Purpose   : Push the application submission flow beyond normal operating
- *             limits to find the breaking point. Load escalates in steps,
- *             each held long enough to observe degradation patterns, then
- *             ramps down to verify the system can recover.
- *
- * Stages    :
- *   2m  →  100 VUs   warm-up          (establish baseline before stress)
- *   3m  →  300 VUs   moderate stress  (1.5× normal load)
- *   3m  →  500 VUs   high stress      (2.5× normal load)
- *   3m  →  800 VUs   heavy stress     (4× normal load)
- *   5m  → 1000 VUs   breaking point   (push to failure threshold)
- *   3m  →  500 VUs   partial recovery (confirm partial recovery)
- *   2m  →    0 VUs   full ramp-down   (confirm full recovery)
- *
- * Total duration: ~21 minutes
- *
- * What to watch:
- *   - At what VU level does p(95) latency first breach 10s?
- *   - At what VU level does error_rate exceed 10%?
- *   - Does the system fully recover after ramp-down?
- *
- * Usage:
- *   k6 run application_submit_stress.js
- *   k6 run -e BEARER_TOKEN=xxx application_submit_stress.js
- *
- * Requirements:
- *   - Image file at: ./test.jpg  (relative to this script)
- */
-
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';

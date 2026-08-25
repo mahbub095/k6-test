@@ -1,35 +1,3 @@
-/**
- * Application Submit — Spike Test
- *
- * Test Type : Spike Test
- * Purpose   : Verify the system can handle a sudden, extreme surge of
- *             concurrent application submissions — simulating a real-world
- *             scenario such as a new program opening or a media announcement
- *             driving a burst of traffic.
- *
- * Stages    :
- *   1m  →  50 VUs   baseline         (normal idle state)
- *   30s → 600 VUs   spike            (sudden 12× surge in 30 seconds)
- *   3m  → 600 VUs   hold spike       (maintain peak — observe stability)
- *   30s →  50 VUs   spike drop       (sudden return to normal)
- *   2m  →  50 VUs   post-spike hold  (verify normal operation restores)
- *   1m  →   0 VUs   ramp-down
- *
- * Total duration: ~8 minutes
- *
- * What to watch:
- *   - Does the system absorb the spike without 5xx errors?
- *   - How quickly do response times recover after the spike drops?
- *   - Does error_rate spike and then recover?
- *
- * Usage:
- *   k6 run application_submit_spike.js
- *   k6 run -e BEARER_TOKEN=xxx application_submit_spike.js
- *
- * Requirements:
- *   - Image file at: ./test.jpg  (relative to this script)
- */
-
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';

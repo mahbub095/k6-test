@@ -1,37 +1,3 @@
-/**
- * Application Submit — Breakpoint Test
- *
- * Test Type : Breakpoint Test
- * Purpose   : Find the exact VU level at which https://api.bhata.gov.bd
- *             breaks — returning 502 Bad Gateway, 503 Service Unavailable,
- *             connection refused, or timeout.
- *
- * Stages:
- *   2m → 5 000 VUs   ramp up
- *   3m → 8 000 VUs   hold at peak   ← breaking point observed here
- *   2m →       0     drain / recovery
- *
- * Total duration: exactly 7 minutes
- *
- * Key metrics (printed live every 10s):
- *   gateway_502_rate  → PRIMARY signal — rate of 502 Bad Gateway
- *   server_down_rate  → 502 + 503 + connection refused combined
- *   error_rate        → all non-2xx responses
- *   http_req_duration → p95 response time
- *   vus               → active VU count when failure starts
- *
- * Run:
- *   k6 run --address="" -e BEARER_TOKEN=xxx application_submit_load.js
- *
- * Save results for post-analysis:
- *   k6 run --address="" --out json=results/breakpoint_result.json \
- *          -e BEARER_TOKEN=xxx application_submit_load.js
- *
- * Requirements:
- *   - ./test.jpg must exist in the same folder as this script
- *   - results/ directory must exist when using --out json
- */
-
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';

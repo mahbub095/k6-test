@@ -1,39 +1,3 @@
-/**
- * Application Submit — Soak Test (Endurance Test)
- *
- * Test Type : Soak Test
- * Purpose   : Verify system durability and reliability under sustained,
- *             moderate load over a long period. The full 23-step application
- *             submission flow runs continuously for 2 hours at 100 VUs.
- *
- *             Designed to surface:
- *               - Memory leaks (gradual latency creep)
- *               - Database connection pool exhaustion
- *               - File handle / thread leaks
- *               - Log file disk saturation
- *               - Token / session expiry problems
- *               - Garbage collection pauses under sustained load
- *
- * Stages    :
- *   5m  →  50 VUs   ramp-up      (gentle ramp, no shock)
- *   2h  → 100 VUs   soak         (sustained moderate load — core endurance window)
- *   5m  →   0 VUs   ramp-down    (graceful drain)
- *
- * Total duration: ~2 hours 10 minutes
- *
- * What to watch:
- *   - Does p(95) latency increase over time (latency creep)?
- *   - Does error_rate climb after 30–60 minutes?
- *   - Are memory/CPU metrics stable on the server side?
- *
- * Usage:
- *   k6 run application_submit_soak.js
- *   k6 run -e BEARER_TOKEN=xxx application_submit_soak.js
- *
- * Requirements:
- *   - Image file at: ./test.jpg  (relative to this script)
- */
-
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
