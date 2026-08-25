@@ -71,6 +71,23 @@ export default function () {
   const isFirstIteration = (__ITER === 0);
   const credentials = isFirstIteration ? PRIMARY_USER : generateDynamicCredentials(__VU);
 
+  // ── Step 1: GET request to verify the API is reachable before attempting login ──
+  const getParams = {
+    headers: { 'Accept': 'application/json' },
+    timeout: '10s',
+    tags: { name: 'api_health_check' },
+  };
+
+  const getRes = http.get(`${BASE_URL}`, getParams);
+
+  check(getRes, {
+    'GET: HTTP status is 200': r => r.status === 200,
+    'GET: Response time is under 1000ms': r => r.timings.duration < 1000,
+  });
+
+  sleep(0.5);
+
+  // ── Step 2: POST login request ─────────────────────────────────────────────
   const payload = JSON.stringify({
     username: credentials.username,
     password: credentials.password,
