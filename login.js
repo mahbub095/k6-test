@@ -14,7 +14,7 @@ const PRIMARY_USER = {
 
 export const options = {
   stages: [
-    { duration: '30s', target: 10 },   // Ramp up to 10 VUs
+    { duration: '30s', target: 20 },   // Ramp up to 10 VUs
     { duration: '1m', target: 10 },   // Hold at 10 VUs
     { duration: '30s', target: 50 },   // Ramp up to 50 VUs
     { duration: '2m', target: 50 },   // Hold at 50 VUs
