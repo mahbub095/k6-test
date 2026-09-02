@@ -14,9 +14,11 @@ const BASE_URL = 'https://stage-api.bhata.gov.bd';
 
 export const options = {
   stages: [
-    { duration: '30s', target: 1 },
-    { duration: '1m',  target: 1 },
-    { duration: '10s', target: 0 },
+    { duration: '1m',  target: 100 },  // ramp up to 100 VUs
+    { duration: '3m',  target: 300 },  // ramp up to 300 VUs
+    { duration: '3m',  target: 500 },  // ramp up to 500 VUs
+    { duration: '5m',  target: 500 },  // hold at 500 VUs
+    { duration: '2m',  target: 0   },  // ramp down
   ],
   thresholds: {
     'http_req_duration':        ['p(95)<3000', 'p(99)<5000'],
@@ -235,7 +237,7 @@ export default function ({ token }) {
       { 'App page data: status 200': r => r.status === 200 }
     );
 
-    sleep(0.3);
+    sleep(1);
 
     check(
       http.get(`${BASE_URL}/api/v1/global/family-card-user/locations/district/get/2?lang=bn`, {
@@ -258,7 +260,7 @@ export default function ({ token }) {
       { 'Disabled areas: status 200': r => r.status === 200 }
     );
 
-    sleep(0.3);
+    sleep(1);
 
     check(
       http.get(`${BASE_URL}/api/v1/captcha?lang=bn`, {
@@ -310,7 +312,7 @@ export default function ({ token }) {
     );
   });
 
-  sleep(0.5);
+  sleep(1);
 
   // ── Step 02: save-draft — module: personal ────────────────────────────────
 
@@ -364,7 +366,7 @@ export default function ({ token }) {
     }
   });
 
-  sleep(0.3);
+  sleep(1);
 
   check(
     http.get(`${BASE_URL}/api/v1/family-card/applications/counts?lang=bn`, {
@@ -379,7 +381,7 @@ export default function ({ token }) {
     return;
   }
 
-  sleep(0.5);
+  sleep(1);
 
   // ── Step 03: Media uploads (image, signature, house_image) ────────────────
 
@@ -394,7 +396,7 @@ export default function ({ token }) {
     mediaUploadDuration.add(imgRes.timings.duration);
     check(imgRes, { 'Upload image: status 2xx': r => r.status >= 200 && r.status < 300 });
 
-    sleep(0.3);
+    sleep(1);
 
     const sigRes = http.post(
       `${BASE_URL}/api/v1/family-card/applications/media-upload?lang=bn`,
@@ -404,7 +406,7 @@ export default function ({ token }) {
     mediaUploadDuration.add(sigRes.timings.duration);
     check(sigRes, { 'Upload signature: status 2xx': r => r.status >= 200 && r.status < 300 });
 
-    sleep(0.3);
+    sleep(1);
 
     const houseRes = http.post(
       `${BASE_URL}/api/v1/family-card/applications/media-upload?lang=bn`,
@@ -415,7 +417,7 @@ export default function ({ token }) {
     check(houseRes, { 'Upload house_image: status 2xx': r => r.status >= 200 && r.status < 300 });
   });
 
-  sleep(0.5);
+  sleep(1);
 
   // ── Step 04: save-draft — module: photos ─────────────────────────────────
 
@@ -443,7 +445,7 @@ export default function ({ token }) {
     check(res, { 'Draft photos: status 2xx': r => r.status >= 200 && r.status < 300 });
   });
 
-  sleep(0.3);
+  sleep(1);
 
   check(
     http.get(`${BASE_URL}/api/v1/family-card/applications/counts?lang=bn`, {
@@ -452,7 +454,7 @@ export default function ({ token }) {
     { 'Counts after photos: status 200': r => r.status === 200 }
   );
 
-  sleep(0.5);
+  sleep(1);
 
   // ── Step 05: save-draft — module: address ─────────────────────────────────
   // All present-address and permanent-address fields from the JMX recording.
@@ -508,7 +510,7 @@ export default function ({ token }) {
     }
   });
 
-  sleep(0.3);
+  sleep(1);
 
   check(
     http.get(`${BASE_URL}/api/v1/family-card/applications/counts?lang=bn`, {
@@ -517,7 +519,7 @@ export default function ({ token }) {
     { 'Counts after address: status 200': r => r.status === 200 }
   );
 
-  sleep(0.5);
+  sleep(1);
 
   // ── Step 06: save-draft — module: program (application_allowance_values) ──
 
@@ -553,7 +555,7 @@ export default function ({ token }) {
     syncHashes = mergeSyncHashes(syncHashes, res);
   });
 
-  sleep(0.3);
+  sleep(1);
 
   check(
     http.get(`${BASE_URL}/api/v1/family-card/applications/counts?lang=bn`, {
@@ -562,7 +564,7 @@ export default function ({ token }) {
     { 'Counts after program: status 200': r => r.status === 200 }
   );
 
-  sleep(0.5);
+  sleep(1);
 
   // ── Step 07: save-draft — module: bank ───────────────────────────────────
 
@@ -600,7 +602,7 @@ export default function ({ token }) {
     }
   });
 
-  sleep(0.3);
+  sleep(1);
 
   check(
     http.get(`${BASE_URL}/api/v1/family-card/applications/counts?lang=bn`, {
@@ -609,7 +611,7 @@ export default function ({ token }) {
     { 'Counts after bank: status 200': r => r.status === 200 }
   );
 
-  sleep(0.5);
+  sleep(1);
 
   // ── Step 08: save-draft — module: nominee ────────────────────────────────
 
@@ -634,7 +636,7 @@ export default function ({ token }) {
     check(res, { 'Draft nominee: status 2xx': r => r.status >= 200 && r.status < 300 });
   });
 
-  sleep(0.3);
+  sleep(1);
 
   check(
     http.get(`${BASE_URL}/api/v1/family-card/applications/counts?lang=bn`, {
@@ -643,7 +645,7 @@ export default function ({ token }) {
     { 'Counts after nominee: status 200': r => r.status === 200 }
   );
 
-  sleep(0.5);
+  sleep(1);
 
   // ── Step 09: save-draft — module: pmt ────────────────────────────────────
 
@@ -699,7 +701,7 @@ export default function ({ token }) {
     syncHashes = mergeSyncHashes(syncHashes, res);
   });
 
-  sleep(0.3);
+  sleep(1);
 
   check(
     http.get(`${BASE_URL}/api/v1/family-card/applications/counts?lang=bn`, {
@@ -708,7 +710,7 @@ export default function ({ token }) {
     { 'Counts after pmt: status 200': r => r.status === 200 }
   );
 
-  sleep(0.5);
+  sleep(1);
 
   // ── Step 10: save-draft — module: family ─────────────────────────────────
 
@@ -767,7 +769,7 @@ export default function ({ token }) {
     syncHashes = mergeSyncHashes(syncHashes, res);
   });
 
-  sleep(0.3);
+  sleep(1);
 
   check(
     http.get(`${BASE_URL}/api/v1/family-card/applications/counts?lang=bn`, {
@@ -776,7 +778,7 @@ export default function ({ token }) {
     { 'Counts after family: status 200': r => r.status === 200 }
   );
 
-  sleep(0.5);
+  sleep(1);
 
   // ── Step 11: save-draft — module: cash_usage ─────────────────────────────
 
@@ -817,7 +819,7 @@ export default function ({ token }) {
     syncHashes = mergeSyncHashes(syncHashes, res);
   });
 
-  sleep(0.3);
+  sleep(1);
 
   check(
     http.get(`${BASE_URL}/api/v1/family-card/applications/counts?lang=bn`, {
@@ -826,7 +828,7 @@ export default function ({ token }) {
     { 'Counts after cash_usage: status 200': r => r.status === 200 }
   );
 
-  sleep(0.5);
+  sleep(1);
 
   // ── Step 12: save-draft — module: external ────────────────────────────────
 
@@ -859,7 +861,7 @@ export default function ({ token }) {
     syncHashes = mergeSyncHashes(syncHashes, res);
   });
 
-  sleep(0.3);
+  sleep(1);
 
   // ── Step 13: GET counts (pre-finalize) ────────────────────────────────────
 
@@ -870,7 +872,7 @@ export default function ({ token }) {
     { 'Counts pre-finalize: status 200': r => r.status === 200 }
   );
 
-  sleep(0.5);
+  sleep(1);
 
   // ── Step 14: POST finalize ────────────────────────────────────────────────
   // Finalizes the application. URL contains the draft_id.
@@ -915,7 +917,7 @@ export default function ({ token }) {
     }
   });
 
-  sleep(0.5);
+  sleep(1);
 
   // ── Step 15: GET counts + location refresh (post-finalize) ────────────────
 
