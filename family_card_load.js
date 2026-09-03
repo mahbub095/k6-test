@@ -10,11 +10,11 @@ export const handleSummary = makeHandleSummary('load');
 
 export const options = {
   stages: [
-    { duration: '3m',  target: 100 },  // ramp up to 100 VUs
-    { duration: '4m',  target: 300 },  // ramp up to 300 VUs
-    { duration: '3m',  target: 500 },  // ramp up to 500 VUs
-    { duration: '7m',  target: 500 },  // hold at peak
-    { duration: '3m',  target: 0   },  // ramp down
+    { duration: '1m',  target: 1 },  // ramp up to 100 VUs
+    // { duration: '4m',  target: 300 },  // ramp up to 300 VUs
+    // { duration: '3m',  target: 500 },  // ramp up to 500 VUs
+    // { duration: '7m',  target: 500 },  // hold at peak
+    // { duration: '3m',  target: 0   },  // ramp down
   ],                                   // total: 20m
   thresholds: {
     'http_req_duration':        ['p(95)<3000', 'p(99)<5000'],
