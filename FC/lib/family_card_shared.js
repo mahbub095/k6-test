@@ -541,7 +541,7 @@ export function familyCardDefault({ token }) {
 // Each test file calls:
 //   export const handleSummary = makeHandleSummary('load');
 //
-// Outputs (written to v1/reports/):
+// Outputs (written to FC/reports/):
 //   family_card_<name>_<timestamp>.json   — raw k6 summary data
 //   family_card_<name>_<timestamp>.html   — human-readable HTML report
 //
@@ -554,8 +554,8 @@ import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
 
 export function makeHandleSummary(testName) {
   return function (data) {
-    const ts      = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const base    = `reports/family_card_${testName}_${ts}`;
+    const ts       = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const base     = `reports/family_card_${testName}_${ts}`;
     const jsonPath = `${base}.json`;
     const htmlPath = `${base}.html`;
 
