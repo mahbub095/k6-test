@@ -254,9 +254,10 @@ export function setup() {
  * Step 10  Save draft — family members
  * Step 11  Save draft — cash usage
  * Step 12  Save draft — external user info
- * Step 13  GET counts (pre-finalize check)
- * Step 14  POST finalize (submit application)
- * Step 15  Final counts + location refresh
+ * Step 13  Save draft — module=all (final submission with declaration consent)
+ * Step 14  GET counts (pre-finalize check)
+ * Step 15  POST finalize (seal the application)
+ * Step 16  Final counts + location refresh
  */
 export function familyCardDefault({ token }) {
 
@@ -639,16 +640,139 @@ export function familyCardDefault({ token }) {
   sleep(1);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // STEP 13 — GET counts (pre-finalize)
+  // STEP 13 — Save draft: module=all  (final submission payload)
+  // Combines every module into one POST with is_declaration_consented=1.
+  // This is the browser's "Submit Application" button click.
+  // ═══════════════════════════════════════════════════════════════════════════
+  group('13_save_draft_submit', function () {
+    const nomineeName = generateName();
+    const nomineeVN   = generateVerificationNumber();
+    const nomineeDob  = generateNomineeDateOfBirth();
+
+    const { res } = postDraft({
+      ...draftBase(),
+      module:                       'all',
+      is_declaration_consented:     '1',
+      nationality:                  '105',
+      // Personal
+      profession:                   '181',
+      name_en:                      applicant.en,
+      name_bn:                      applicant.bn,
+      father_name_en:               father.en,
+      father_name_bn:               father.bn,
+      mother_name_en:               mother.en,
+      mother_name_bn:               mother.bn,
+      date_of_birth:                dateOfBirth,
+      age:                          age,
+      gender_id:                    '24',
+      mobile:                       '01671816194',
+      education_status:             '88',
+      religion:                     '96',
+      marital_status:               '101',
+      // Present address
+      division_id:                  '2',
+      district_id:                  '21',
+      thana_id:                     '197',
+      union_id:                     '2171',
+      ward_id_union:                '15627',
+      address:                      'C',
+      post_code:                    '1234',
+      location_type:                '2',
+      sub_location_type:            '2',
+      // Permanent address
+      permanent_division_id:        '2',
+      permanent_district_id:        '21',
+      permanent_thana_id:           '197',
+      permanent_union_id:           '2171',
+      permanent_ward_id_union:      '15627',
+      permanent_address:            'C',
+      permanent_post_code:          '1234',
+      permanent_location_type:      '2',
+      permanent_sub_location_type:  '2',
+      // Photos
+      image:       'ctm/stage/applications/2026-09-01/applicant_image/79b63d94-12cf-48e2-ad36-2f4948df618b.jpg',
+      signature:   'ctm/stage/applications/2026-09-01/applicant_signature/fc8d40ce-d0c9-4cc1-bbfc-6cdb55e7a78c.jpg',
+      house_image: 'ctm/stage/applications/2026-09-01/house_image/c864faab-f143-4891-b431-a05948a08bf6.jpg',
+      // Bank
+      account_type:                 '1',
+      account_owner:                '142',
+      bank_name:                    '1',
+      branch_name:                  '7393',
+      // PMT
+      house_size:                   '1',
+      no_of_room:                   '503',
+      no_of_people_score:           '-0.778',
+      per_room_score:               '-2.333',
+      application_pmt:              APPLICATION_PMT,
+      // Program
+      application_allowance_values: APPLICATION_ALLOWANCE_VALUES,
+      // Nominee (re-sent in the final all-modules payload, as captured in browser recording)
+      nominee_en:                        nomineeName.en,
+      nominee_bn:                        nomineeName.bn,
+      nominee_date_of_birth:             nomineeDob,
+      nominee_verification_type:         '2',
+      nominee_verification_number:       nomineeVN,
+      nominee_relation_with_beneficiary: '159',
+      nominee_nationality:               '105',
+      nominee_address:                   'C,01,DARBARPUR,FULGAZI,FENI-1234, Chittagong',
+      // Family members
+      family_members: JSON.stringify([{
+        is_self:           true,
+        _lockedFields:     ['name_bn','name_en','father_name_bn','mother_name_bn','gender_id','maritial_status_id','religion_id','dob','mobile_number','education_status_id','profession_id','verification_type','brn_id'],
+        name_en:           applicant.en,
+        name_bn:           applicant.bn,
+        verification_type: 2,
+        nid:               '',
+        brn_id:            verificationNumber,
+        dob:               dateOfBirth,
+        relationship_id:   260,
+        father_name_bn:    father.bn,
+        mother_name_bn:    mother.bn,
+        facilities_ids:    [],
+        gender_id:                            24,
+        maritial_status_id:                   101,
+        religion_id:                          96,
+        profession_id:                        181,
+        mobile_number:                        '01671816194',
+        literacy_id:                          241,
+        education_status_id:                  88,
+        health_condition_id:                  203,
+        livelihood_profession_id:             212,
+        disability_type_id:                   '',
+        is_currently_student:                 0,
+        is_ssnp_covered:                      0,
+        is_dss_training_or_financial_benefit:  0,
+        estimate_annual_income:               '55',
+        is_gov_job_holder:                    0,
+        is_member_disabled:                   0,
+        menu:                                 false,
+        verification_number:                  verificationNumber,
+        relationship:                         null,
+      }]),
+      // Cash usage
+      cash_usages:      CASH_USAGES,
+      // External
+      external_user_info: JSON.stringify({
+        user_name_en: applicant.en,
+        user_mobile:  '01744682915',
+        form_number:  '',
+      }),
+    }, 'save_draft_submit', 'Draft submit (all)');
+    syncHashes = mergeSyncHashes(syncHashes, res);
+  });
+  sleep(1);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STEP 14 — GET counts (pre-finalize)
   // ═══════════════════════════════════════════════════════════════════════════
   getCounts('counts_pre_finalize');
   sleep(1);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // STEP 14 — POST finalize
-  // Submits the application. Requires the sync hashes collected across steps 06–12.
+  // STEP 15 — POST finalize
+  // Seals the application. Requires sync hashes collected across steps 06–13.
   // ═══════════════════════════════════════════════════════════════════════════
-  group('14_finalize', function () {
+  group('15_finalize', function () {
     console.log(`[VU ${__VU}] Finalizing draftId=${draftId} | hashes: allowance=${syncHashes.allowance} cash=${syncHashes.cash_usage} pmt=${syncHashes.pmt} family=${syncHashes.family}`);
 
     const res = http.post(
@@ -676,7 +800,7 @@ export function familyCardDefault({ token }) {
 
     if (ok) {
       familyCardFailure.add(0);
-      console.log(`[VU ${__VU}] Application ${draftId} finalized successfully`);
+      console.log(`[VU ${__VU}] Application ${draftId} submitted and finalized successfully`);
     } else {
       familyCardFailure.add(1);
       console.error(`[finalize FAIL] VU ${__VU} | draftId=${draftId} | HTTP ${res.status} | body=${res.body}`);
@@ -685,10 +809,10 @@ export function familyCardDefault({ token }) {
   sleep(1);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // STEP 15 — Final refresh
+  // STEP 16 — Final refresh
   // Refreshes counts and location data after submission (matches browser behaviour).
   // ═══════════════════════════════════════════════════════════════════════════
-  group('15_final_refresh', function () {
+  group('16_final_refresh', function () {
     getCounts('final_counts');
     [
       `${BASE_URL}/api/v1/global/family-card-user/locations/district/get/2?lang=bn`,
