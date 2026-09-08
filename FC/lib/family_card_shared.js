@@ -1,16 +1,3 @@
-/**
- * family_card_shared.js
- *
- * Shared library for all Family Card load test types (load / spike / soak / stress).
- * Converted directly from SUBMIT.jmx and aligned with submit.js.
- *
- * Exports:
- *   setup()              — logs in once / loads Bearer token; passes token to every VU iteration
- *   familyCardDefault()  — clean submit + finalize application flow (used as default export)
- *   makeHandleSummary()  — builds the HTML + JSON report writer for each test
- *   authHeaders()        — builds standard API auth headers
- */
-
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { Rate, Trend } from 'k6/metrics';
@@ -31,7 +18,7 @@ export const finalizeDuration = new Trend('finalize_duration', true);
 export const mediaUploadDuration = new Trend('media_upload_duration', true);
 export const familyCardFailure = new Rate('family_card_failure_rate');
 
-// ─── STATIC PAYLOADS (from SUBMIT.jmx) ─────────────────────────────────────────
+// ─── STATIC PAYLOADS  ─────────────────────────────────────────
 
 const APPLICATION_PMT = JSON.stringify([
   { variable_id: 576, sub_variables: 577 },
@@ -157,9 +144,9 @@ export function setup() {
     }
   }
 
-  // Default token recorded from SUBMIT.jmx
+  // Default token
   const recordedToken = '337484|HOksCwKj276SbhdUgehCjaE5NnFK3E1VU0a5E8ZJ434d4788';
-  console.log('[setup] Using recorded Bearer token from SUBMIT.jmx.');
+  console.log('[setup] Using recorded Bearer token.');
   return { token: recordedToken };
 }
 
@@ -222,7 +209,7 @@ export function familyCardDefault({ token }) {
   let isIterationOk = true;
 
   // ───────────────────────────────────────────────────────────────────────────
-  // STEP 1: POST save-draft (module=all) [JMeter Request #2]
+  // STEP 1: POST save-draft (module=all)
   // ───────────────────────────────────────────────────────────────────────────
   group('01_Submit_Save_Draft_All', function () {
     const payload = {
@@ -273,7 +260,7 @@ export function familyCardDefault({ token }) {
       permanent_location_type: '2',
       permanent_sub_location_type: '2',
 
-      // Images (Paths recorded from JMX)
+      // Images
       image: 'ctm/stage/applications/2026-09-01/applicant_image/79b63d94-12cf-48e2-ad36-2f4948df618b.jpg',
       signature: 'ctm/stage/applications/2026-09-01/applicant_signature/fc8d40ce-d0c9-4cc1-bbfc-6cdb55e7a78c.jpg',
       house_image: 'ctm/stage/applications/2026-09-01/house_image/c864faab-f143-4891-b431-a05948a08bf6.jpg',
@@ -375,7 +362,7 @@ export function familyCardDefault({ token }) {
   sleep(0.5);
 
   // ───────────────────────────────────────────────────────────────────────────
-  // STEP 2: GET counts (Pre-finalize count check) [JMeter Request #5]
+  // STEP 2: GET counts (Pre-finalize count check)
   // ───────────────────────────────────────────────────────────────────────────
   group('02_Get_Counts_Pre_Finalize', function () {
     const res = http.get(
@@ -394,7 +381,7 @@ export function familyCardDefault({ token }) {
   sleep(0.5);
 
   // ───────────────────────────────────────────────────────────────────────────
-  // STEP 3: POST finalize (Seals application with sync hashes) [JMeter Request #6]
+  // STEP 3: POST finalize (Seals application with sync hashes)
   // ───────────────────────────────────────────────────────────────────────────
   if (draftId) {
     group('03_Submit_Finalize', function () {
@@ -435,7 +422,7 @@ export function familyCardDefault({ token }) {
     sleep(0.5);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // STEP 4: GET counts (Post-finalize refresh) [JMeter Request #8]
+    // STEP 4: GET counts (Post-finalize refresh)
     // ─────────────────────────────────────────────────────────────────────────
     group('04_Get_Counts_Post_Finalize', function () {
       const res = http.get(
@@ -454,7 +441,7 @@ export function familyCardDefault({ token }) {
     sleep(0.5);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // STEP 5: GET applied applications list [JMeter Request #10]
+    // STEP 5: GET applied applications list
     // ─────────────────────────────────────────────────────────────────────────
     group('05_Get_Applied_List', function () {
       const res = http.get(
