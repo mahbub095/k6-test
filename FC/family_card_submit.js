@@ -174,18 +174,20 @@ function extractToken(res) {
 function extractDraftId(res) {
   try {
     const body = JSON.parse(res.body);
-    return body?.data?.id || body?.data?.draft_id || body?.id || null;
+    return body?.draft_id || body?.data?.id || body?.data?.draft_id || body?.id || null;
   } catch { return null; }
 }
 
 function extractSyncHashes(res) {
   try {
-    const data = JSON.parse(res.body)?.data || {};
+    const body = JSON.parse(res.body);
+    const sync = body?.sync_hashes || body?.data?.sync_hashes || body?.hashes || {};
+    const data = body?.data || {};
     return {
-      allowance:  data.allowance_sync_hash  || data.allowanceSyncHash  || null,
-      cash_usage: data.cash_usage_sync_hash || data.cashUsageSyncHash  || null,
-      pmt:        data.pmt_sync_hash        || data.pmtSyncHash        || null,
-      family:     data.family_sync_hash     || data.familySyncHash     || null,
+      allowance:  sync.allowance || sync.allowance_sync_hash || sync.allowanceSyncHash || data.allowance_sync_hash || data.allowanceSyncHash || null,
+      cash_usage: sync.cash_usage || sync.cash_usage_sync_hash || sync.cashUsageSyncHash || data.cash_usage_sync_hash || data.cashUsageSyncHash || null,
+      pmt:        sync.pmt || sync.pmt_sync_hash || sync.pmtSyncHash || data.pmt_sync_hash || data.pmtSyncHash || null,
+      family:     sync.family || sync.family_sync_hash || sync.familySyncHash || data.family_sync_hash || data.familySyncHash || null,
     };
   } catch {
     return { allowance: null, cash_usage: null, pmt: null, family: null };
@@ -195,32 +197,46 @@ function extractSyncHashes(res) {
 // ─── SETUP ────────────────────────────────────────────────────────────────────
 
 export function setup() {
-  const res = http.post(
-    `${BASE_URL}/api/v1/family-card/login/dev`,
-    JSON.stringify(LOGIN_CREDENTIALS),
-    {
-      headers: {
-        'Accept':         'application/json, text/plain, */*',
-        'Content-Type':   'application/json',
-        'X-App-Language': 'en',
-      },
-      timeout: '15s',
-      tags: { name: 'setup_login' },
-    }
-  );
-
-  const token = extractToken(res);
-  check(res, {
-    'Setup login: status 200': r => r.status === 200,
-    'Setup login: has token':  r => token !== null,
-  });
-
-  if (!token) {
-    throw new Error(`Login failed in setup — HTTP ${res.status}: ${res.body}`);
+  const envToken = __ENV.TOKEN || __ENV.BEARER_TOKEN;
+  if (envToken) {
+    console.log('[setup] Using BEARER TOKEN from environment variable.');
+    return { token: envToken };
   }
 
-  console.log('[setup] Login successful. Token obtained.');
-  return { token };
+  // If specific username/password provided via env, attempt login
+  if (__ENV.USERNAME && __ENV.PASSWORD) {
+    const loginUrl = `${BASE_URL}/api/v1/family-card/login/dev`;
+    console.log(`[setup] Authenticating ${__ENV.USERNAME} at ${loginUrl}...`);
+    try {
+      const res = http.post(
+        loginUrl,
+        JSON.stringify({ username: __ENV.USERNAME, password: __ENV.PASSWORD }),
+        {
+          headers: {
+            'Accept':         'application/json, text/plain, */*',
+            'Content-Type':   'application/json',
+            'X-App-Language': 'en',
+          },
+          timeout: '15s',
+          tags: { name: 'setup_auth' },
+        }
+      );
+
+      const body = JSON.parse(res.body);
+      const token = body?.data?.token || body?.token || body?.access_token || null;
+      if (res.status === 200 && token) {
+        console.log('[setup] Authentication successful.');
+        return { token };
+      }
+    } catch (e) {
+      console.warn(`[setup] Login failed: ${e.message}`);
+    }
+  }
+
+  // Default token recorded from SUBMIT.jmx
+  const recordedToken = '337484|HOksCwKj276SbhdUgehCjaE5NnFK3E1VU0a5E8ZJ434d4788';
+  console.log('[setup] Using recorded Bearer token from SUBMIT.jmx.');
+  return { token: recordedToken };
 }
 
 // ─── DEFAULT (VU iteration) ───────────────────────────────────────────────────

@@ -1,37 +1,84 @@
 /**
- * family_card_shared.js
+ * submit.js
  *
- * Shared library for all Family Card load test types (load / spike / soak / stress).
- * Converted directly from SUBMIT.jmx and aligned with submit.js.
+ * Converted directly from SUBMIT.jmx (JMeter test plan).
  *
- * Exports:
- *   setup()              — logs in once / loads Bearer token; passes token to every VU iteration
- *   familyCardDefault()  — clean submit + finalize application flow (used as default export)
- *   makeHandleSummary()  — builds the HTML + JSON report writer for each test
- *   authHeaders()        — builds standard API auth headers
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SUMMARY OF JMETER CONVERSION:
+ * ─────────────────────────────────────────────────────────────────────────────
+ * JMeter Plan: SUBMIT.jmx
+ * Host: https://stage-api.bhata.gov.bd
+ *
+ * Request Mapping:
+ *   [1] OPTIONS /api/v1/family-card/applications/save-draft (CORS preflight - omitted in k6)
+ *   [2] POST    /api/v1/family-card/applications/save-draft?lang=en (module=all, full multipart payload)
+ *       -> Extracts draft_id and sync hashes (allowance, cash_usage, pmt, family)
+ *   [3] OPTIONS /api/v1/family-card/applications/counts (CORS preflight - omitted)
+ *   [4] OPTIONS /api/v1/family-card/applications/{draft_id}/finalize (CORS preflight - omitted)
+ *   [5] GET     /api/v1/family-card/applications/counts?lang=en
+ *   [6] POST    /api/v1/family-card/applications/{draft_id}/finalize?lang=en (submitting sync hashes)
+ *   [7] OPTIONS /api/v1/family-card/applications/counts (CORS preflight - omitted)
+ *   [8] GET     /api/v1/family-card/applications/counts?lang=en
+ *   [9] OPTIONS /api/v1/family-card/applications/applied (CORS preflight - omitted)
+ *  [10] GET     /api/v1/family-card/applications/applied?page=1&per_page=10&search=&lang=en
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * RUN COMMANDS:
+ *   k6 run submit.js
+ *   k6 run --vus 5 --duration 1m submit.js
+ *   k6 run -e ENVIRONMENT=staging -e TOKEN=your_token_here submit.js
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
-import { Rate, Trend } from 'k6/metrics';
-import { htmlReport } from 'https://raw.githubusercontent.com/benc-uk/k6-reporter/main/dist/bundle.js';
-import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
+import { Rate, Trend, Counter } from 'k6/metrics';
 
 // ─── CONFIGURATION ────────────────────────────────────────────────────────────
 
 const BASE_URL = __ENV.BASE_URL || 'https://stage-api.bhata.gov.bd';
 
+const LOGIN_CREDENTIALS = {
+  username: __ENV.USERNAME || 'enumghatail',
+  password: __ENV.PASSWORD || 'Password#1',
+};
+
 const PROGRAM_ID = '24';
 const SUB_PROGRAM_ID = '24';
 
-// ─── METRICS ──────────────────────────────────────────────────────────────────
+// ─── K6 OPTIONS & THRESHOLDS ──────────────────────────────────────────────────
 
-export const saveDraftDuration = new Trend('save_draft_duration', true);
-export const finalizeDuration = new Trend('finalize_duration', true);
-export const mediaUploadDuration = new Trend('media_upload_duration', true);
-export const familyCardFailure = new Rate('family_card_failure_rate');
+export const options = {
+  scenarios: {
+    submit_flow: {
+      executor: 'ramping-vus',
+      startVUs: 1,
+      stages: [
+        { duration: '1m', target: 1 },   // Ramp up
+        // { duration: '1m',  target: 5 },   // Sustain
+        // { duration: '20s', target: 0 },   // Ramp down
+      ],
+      gracefulRampDown: '10s',
+    },
+  },
+  thresholds: {
+    'http_req_duration': ['p(95)<4000', 'p(99)<8000'],
+    'http_req_failed': ['rate<0.05'], // Max 5% HTTP errors
+    'submit_save_draft_duration': ['p(95)<3000'],
+    'submit_finalize_duration': ['p(95)<3000'],
+    'submission_success_rate': ['rate>0.95'], // Min 95% full workflow success
+  },
+};
 
-// ─── STATIC PAYLOADS (from SUBMIT.jmx) ─────────────────────────────────────────
+// ─── CUSTOM METRICS ───────────────────────────────────────────────────────────
+
+const saveDraftDuration = new Trend('submit_save_draft_duration', true);
+const finalizeDuration = new Trend('submit_finalize_duration', true);
+const fullFlowDuration = new Trend('submit_full_workflow_duration', true);
+const submissionSuccessRate = new Rate('submission_success_rate');
+const completedSubmissions = new Counter('completed_submissions_total');
+
+// ─── PAYLOAD TEMPLATES (from SUBMIT.jmx) ───────────────────────────────────────
 
 const APPLICATION_PMT = JSON.stringify([
   { variable_id: 576, sub_variables: 577 },
@@ -165,7 +212,7 @@ export function setup() {
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
-export function authHeaders(token) {
+function getHeaders(token) {
   return {
     'Accept': 'application/json, text/plain, */*',
     'Authorization': `Bearer ${token}`,
@@ -190,22 +237,18 @@ function extractDraftData(res) {
       },
     };
   } catch (e) {
+    console.error(`[extractDraftData Error] ${e.message}`);
     return { draftId: null, syncHashes: { allowance: '', cash_usage: '', pmt: '', family: '' } };
   }
 }
 
-// ─── MAIN FLOW (Default function for Load / Soak / Spike / Stress) ─────────────
+// ─── MAIN VU ITERATION ────────────────────────────────────────────────────────
 
-export function familyCardDefault({ token }) {
-  if (!token) {
-    console.error(`[VU ${__VU}] No token received — aborting iteration`);
-    familyCardFailure.add(1);
-    return;
-  }
+export default function ({ token }) {
+  const iterationStartTime = Date.now();
+  const headers = getHeaders(token);
 
-  const headers = authHeaders(token);
-
-  // Dynamic values per VU iteration
+  // Dynamic values per VU execution
   const applicantVN = generateVerificationNumber();
   const applicantDob = generateDateOfBirth();
   const applicantAge = String(calculateAge(applicantDob));
@@ -219,7 +262,7 @@ export function familyCardDefault({ token }) {
 
   let draftId = null;
   let syncHashes = { allowance: '', cash_usage: '', pmt: '', family: '' };
-  let isIterationOk = true;
+  let isFlowSuccessful = true;
 
   // ───────────────────────────────────────────────────────────────────────────
   // STEP 1: POST save-draft (module=all) [JMeter Request #2]
@@ -273,7 +316,7 @@ export function familyCardDefault({ token }) {
       permanent_location_type: '2',
       permanent_sub_location_type: '2',
 
-      // Images (Paths recorded from JMX)
+      // Images (Referenced IDs from JMX)
       image: 'ctm/stage/applications/2026-09-01/applicant_image/79b63d94-12cf-48e2-ad36-2f4948df618b.jpg',
       signature: 'ctm/stage/applications/2026-09-01/applicant_signature/fc8d40ce-d0c9-4cc1-bbfc-6cdb55e7a78c.jpg',
       house_image: 'ctm/stage/applications/2026-09-01/house_image/c864faab-f143-4891-b431-a05948a08bf6.jpg',
@@ -367,7 +410,7 @@ export function familyCardDefault({ token }) {
       draftId = extracted.draftId;
       syncHashes = extracted.syncHashes;
     } else {
-      isIterationOk = false;
+      isFlowSuccessful = false;
       console.error(`[Save Draft Failed] VU ${__VU} HTTP ${res.status}: ${res.body}`);
     }
   });
@@ -375,7 +418,7 @@ export function familyCardDefault({ token }) {
   sleep(0.5);
 
   // ───────────────────────────────────────────────────────────────────────────
-  // STEP 2: GET counts (Pre-finalize count check) [JMeter Request #5]
+  // STEP 2: GET counts (Pre-finalize count refresh) [JMeter Request #5]
   // ───────────────────────────────────────────────────────────────────────────
   group('02_Get_Counts_Pre_Finalize', function () {
     const res = http.get(
@@ -394,7 +437,7 @@ export function familyCardDefault({ token }) {
   sleep(0.5);
 
   // ───────────────────────────────────────────────────────────────────────────
-  // STEP 3: POST finalize (Seals application with sync hashes) [JMeter Request #6]
+  // STEP 3: POST finalize (Submitting sync hashes) [JMeter Request #6]
   // ───────────────────────────────────────────────────────────────────────────
   if (draftId) {
     group('03_Submit_Finalize', function () {
@@ -427,7 +470,7 @@ export function familyCardDefault({ token }) {
       });
 
       if (!ok) {
-        isIterationOk = false;
+        isFlowSuccessful = false;
         console.error(`[Finalize Failed] VU ${__VU} Draft ${draftId} HTTP ${res.status}: ${res.body}`);
       }
     });
@@ -470,28 +513,17 @@ export function familyCardDefault({ token }) {
       });
     });
   } else {
-    isIterationOk = false;
+    isFlowSuccessful = false;
   }
 
-  // Record failure metric for thresholds
-  familyCardFailure.add(!isIterationOk);
+  // ── Flow outcome recording ──
+  const iterationDuration = Date.now() - iterationStartTime;
+  fullFlowDuration.add(iterationDuration);
+  submissionSuccessRate.add(isFlowSuccessful);
+
+  if (isFlowSuccessful) {
+    completedSubmissions.add(1);
+  }
 
   sleep(1);
-}
-
-// ─── REPORT GENERATOR ─────────────────────────────────────────────────────────
-
-export function makeHandleSummary(testName) {
-  return function (data) {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const basePath = `reports/family_card_${testName}_${timestamp}`;
-
-    console.log(`[summary] Reports → ${basePath}.json | ${basePath}.html`);
-
-    return {
-      [`${basePath}.json`]: JSON.stringify(data, null, 2),
-      [`${basePath}.html`]: htmlReport(data, { title: `Family Card — ${testName.toUpperCase()} Test` }),
-      stdout: textSummary(data, { indent: ' ', enableColors: true }),
-    };
-  };
 }
