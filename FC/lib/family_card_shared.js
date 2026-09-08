@@ -7,18 +7,18 @@ import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
 // ─── CONFIGURATION ────────────────────────────────────────────────────────────
 
 const BASE_URL = __ENV.BASE_URL || 'https://stage-api.bhata.gov.bd';
-
 const PROGRAM_ID = '24';
 const SUB_PROGRAM_ID = '24';
+const DEFAULT_BEARER_TOKEN = '337484|HOksCwKj276SbhdUgehCjaE5NnFK3E1VU0a5E8ZJ434d4788';
 
-// ─── METRICS ──────────────────────────────────────────────────────────────────
+// ─── CUSTOM METRICS ───────────────────────────────────────────────────────────
 
 export const saveDraftDuration = new Trend('save_draft_duration', true);
 export const finalizeDuration = new Trend('finalize_duration', true);
 export const mediaUploadDuration = new Trend('media_upload_duration', true);
 export const familyCardFailure = new Rate('family_card_failure_rate');
 
-// ─── STATIC PAYLOADS  ─────────────────────────────────────────
+// ─── STATIC PAYLOADS ──────────────────────────────────────────────────────────
 
 const APPLICATION_PMT = JSON.stringify([
   { variable_id: 576, sub_variables: 577 },
@@ -65,14 +65,25 @@ const CASH_USAGES = JSON.stringify([
 
 // ─── DATA GENERATORS ──────────────────────────────────────────────────────────
 
+const FIRST_NAMES_EN = ['Rahim', 'Karim', 'Jamal', 'Hasan', 'Nabil', 'Faruk', 'Milon', 'Ratan', 'Sumon', 'Tariq', 'Monir', 'Habib'];
+const LAST_NAMES_EN = ['Ahmed', 'Islam', 'Hossain', 'Khan', 'Miah', 'Sheikh', 'Sarker', 'Das', 'Paul', 'Biswas'];
+const FIRST_NAMES_BN = ['রহিম', 'করিম', 'জামাল', 'হাসান', 'নাবিল', 'ফারুক', 'মিলন', 'রতন', 'সুমন', 'তারিক', 'মনির', 'হাবিব'];
+const LAST_NAMES_BN = ['আহমেদ', 'ইসলাম', 'হোসেন', 'খান', 'মিয়া', 'শেখ', 'সরকার', 'দাস', 'পাল', 'বিশ্বাস'];
+
+/**
+ * Generate a random 17-digit verification number starting with '19'.
+ */
 function generateVerificationNumber() {
-  let n = '19';
+  let num = '19';
   for (let i = 0; i < 15; i++) {
-    n += Math.floor(Math.random() * 10);
+    num += Math.floor(Math.random() * 10);
   }
-  return n;
+  return num;
 }
 
+/**
+ * Generate a random date of birth between 1950 and 2005 (YYYY-MM-DD).
+ */
 function generateDateOfBirth() {
   const year = 1950 + Math.floor(Math.random() * (2005 - 1950 + 1));
   const month = 1 + Math.floor(Math.random() * 12);
@@ -80,33 +91,51 @@ function generateDateOfBirth() {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+/**
+ * Calculate age dynamically from date of birth (YYYY-MM-DD).
+ */
 function calculateAge(dob) {
-  const [y, m, d] = dob.split('-').map(Number);
-  let age = 2026 - y;
-  if (m > 9 || (m === 9 && d > 1)) age -= 1;
+  const [year, month, day] = dob.split('-').map(Number);
+  const today = new Date();
+  let age = today.getFullYear() - year;
+  const currentMonth = today.getMonth() + 1;
+  const currentDay = today.getDate();
+
+  if (currentMonth < month || (currentMonth === month && currentDay < day)) {
+    age -= 1;
+  }
   return age;
 }
 
-const FIRST_NAMES_EN = ['Rahim', 'Karim', 'Jamal', 'Hasan', 'Nabil', 'Faruk', 'Milon', 'Ratan', 'Sumon', 'Tariq', 'Monir', 'Habib'];
-const LAST_NAMES_EN = ['Ahmed', 'Islam', 'Hossain', 'Khan', 'Miah', 'Sheikh', 'Sarker', 'Das', 'Paul', 'Biswas'];
-const FIRST_NAMES_BN = ['রহিম', 'করিম', 'জামাল', 'হাসান', 'নাবিল', 'ফারুক', 'মিলন', 'রতন', 'সুমন', 'তারিক', 'মনির', 'হাবিব'];
-const LAST_NAMES_BN = ['আহমেদ', 'ইসলাম', 'হোসেন', 'খান', 'মিয়া', 'শেখ', 'সরকার', 'দাস', 'পাল', 'বিশ্বাস'];
-
-function pickRandom(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
+/**
+ * Generate matching English and Bengali names.
+ */
 function generateName() {
-  const idx1 = Math.floor(Math.random() * FIRST_NAMES_EN.length);
-  const idx2 = Math.floor(Math.random() * LAST_NAMES_EN.length);
+  const firstIdx = Math.floor(Math.random() * FIRST_NAMES_EN.length);
+  const lastIdx = Math.floor(Math.random() * LAST_NAMES_EN.length);
   return {
-    en: `${FIRST_NAMES_EN[idx1]} ${LAST_NAMES_EN[idx2]}`,
-    bn: `${FIRST_NAMES_BN[idx1]} ${LAST_NAMES_BN[idx2]}`,
+    en: `${FIRST_NAMES_EN[firstIdx]} ${LAST_NAMES_EN[lastIdx]}`,
+    bn: `${FIRST_NAMES_BN[firstIdx]} ${LAST_NAMES_BN[lastIdx]}`,
   };
 }
 
-// ─── AUTHENTICATION / TOKEN SETUP ─────────────────────────────────────────────
+// ─── AUTHENTICATION & HEADERS ─────────────────────────────────────────────────
 
+/**
+ * Standard authentication headers for API requests.
+ */
+export function authHeaders(token) {
+  return {
+    'Accept': 'application/json, text/plain, */*',
+    'Authorization': `Bearer ${token}`,
+    'X-App-Language': 'en',
+    'Sec-GPC': '1',
+  };
+}
+
+/**
+ * k6 setup lifecycle function — resolves auth token from ENV or login endpoint.
+ */
 export function setup() {
   const envToken = __ENV.TOKEN || __ENV.BEARER_TOKEN;
   if (envToken) {
@@ -114,7 +143,7 @@ export function setup() {
     return { token: envToken };
   }
 
-  // If specific username/password provided via env, attempt login
+  // Attempt login if credentials are provided
   if (__ENV.USERNAME && __ENV.PASSWORD) {
     const loginUrl = `${BASE_URL}/api/v1/family-card/login/dev`;
     console.log(`[setup] Authenticating ${__ENV.USERNAME} at ${loginUrl}...`);
@@ -133,35 +162,40 @@ export function setup() {
         }
       );
 
-      const body = JSON.parse(res.body);
-      const token = body?.data?.token || body?.token || body?.access_token || null;
-      if (res.status === 200 && token) {
-        console.log('[setup] Authentication successful.');
-        return { token };
+      if (res.status === 200 && res.body) {
+        const body = JSON.parse(res.body);
+        const token = body?.data?.token || body?.token || body?.access_token || null;
+        if (token) {
+          console.log('[setup] Authentication successful.');
+          return { token };
+        }
       }
-    } catch (e) {
-      console.warn(`[setup] Login failed: ${e.message}`);
+      console.warn(`[setup] Login failed with status ${res.status}: ${res.body}`);
+    } catch (err) {
+      console.warn(`[setup] Login request error: ${err.message}`);
     }
   }
 
-  // Default token
-  const recordedToken = '337484|HOksCwKj276SbhdUgehCjaE5NnFK3E1VU0a5E8ZJ434d4788';
-  console.log('[setup] Using recorded Bearer token.');
-  return { token: recordedToken };
+  // Fallback to recorded default token
+  console.log('[setup] Using default recorded Bearer token.');
+  return { token: DEFAULT_BEARER_TOKEN };
 }
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
+// ─── HELPER FUNCTIONS ─────────────────────────────────────────────────────────
 
-export function authHeaders(token) {
-  return {
-    'Accept': 'application/json, text/plain, */*',
-    'Authorization': `Bearer ${token}`,
-    'X-App-Language': 'en',
-    'Sec-GPC': '1',
-  };
-}
-
+/**
+ * Extract draft ID and sync hashes from the save-draft response.
+ */
 function extractDraftData(res) {
+  const defaultResult = {
+    draftId: null,
+    syncHashes: { allowance: '', cash_usage: '', pmt: '', family: '' },
+  };
+
+  if (!res || !res.body) {
+    return defaultResult;
+  }
+
   try {
     const body = JSON.parse(res.body);
     const draftId = body?.draft_id || body?.data?.id || body?.data?.draft_id || body?.id || null;
@@ -176,13 +210,16 @@ function extractDraftData(res) {
         family: sync.family || sync.family_sync_hash || '',
       },
     };
-  } catch (e) {
-    return { draftId: null, syncHashes: { allowance: '', cash_usage: '', pmt: '', family: '' } };
+  } catch (err) {
+    return defaultResult;
   }
 }
 
-// ─── MAIN FLOW (Default function for Load / Soak / Spike / Stress) ─────────────
+// ─── MAIN VU FLOW ─────────────────────────────────────────────────────────────
 
+/**
+ * Default iteration function executed by each VU.
+ */
 export function familyCardDefault({ token }) {
   if (!token) {
     console.error(`[VU ${__VU}] No token received — aborting iteration`);
@@ -292,7 +329,12 @@ export function familyCardDefault({ token }) {
       // Family Members
       family_members: JSON.stringify([{
         is_self: true,
-        _lockedFields: ['name_bn', 'name_en', 'father_name_bn', 'mother_name_bn', 'gender_id', 'maritial_status_id', 'religion_id', 'dob', 'mobile_number', 'education_status_id', 'profession_id', 'verification_type', 'brn_id'],
+        _lockedFields: [
+          'name_bn', 'name_en', 'father_name_bn', 'mother_name_bn',
+          'gender_id', 'maritial_status_id', 'religion_id', 'dob',
+          'mobile_number', 'education_status_id', 'profession_id',
+          'verification_type', 'brn_id',
+        ],
         name_en: applicantName.en,
         name_bn: applicantName.bn,
         verification_type: 2,
@@ -393,15 +435,11 @@ export function familyCardDefault({ token }) {
         family_sync_hash: syncHashes.family,
       };
 
-      const finalizeHeaders = Object.assign({}, headers, {
-        'Application': 'application/json',
-      });
-
       const res = http.post(
         `${BASE_URL}/api/v1/family-card/applications/${draftId}/finalize?lang=en`,
         finalizePayload,
         {
-          headers: finalizeHeaders,
+          headers,
           timeout: '30s',
           tags: { name: 'finalize_application' },
         }
@@ -468,6 +506,9 @@ export function familyCardDefault({ token }) {
 
 // ─── REPORT GENERATOR ─────────────────────────────────────────────────────────
 
+/**
+ * Generates custom HTML, JSON, and stdout summaries for k6 test runs.
+ */
 export function makeHandleSummary(testName) {
   return function (data) {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
