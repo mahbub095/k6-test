@@ -11,6 +11,11 @@ const PROGRAM_ID = '24';
 const SUB_PROGRAM_ID = '24';
 const DEFAULT_BEARER_TOKEN = '337484|HOksCwKj276SbhdUgehCjaE5NnFK3E1VU0a5E8ZJ434d4788';
 
+const LOGIN_CREDENTIALS = {
+  username: 'enumghatail',
+  password: 'Password#1',
+};
+
 // ─── CUSTOM METRICS ───────────────────────────────────────────────────────────
 
 export const saveDraftDuration = new Trend('save_draft_duration', true);
@@ -143,37 +148,35 @@ export function setup() {
     return { token: envToken };
   }
 
-  // Attempt login if credentials are provided
-  if (__ENV.USERNAME && __ENV.PASSWORD) {
-    const loginUrl = `${BASE_URL}/api/v1/family-card/login/dev`;
-    console.log(`[setup] Authenticating ${__ENV.USERNAME} at ${loginUrl}...`);
-    try {
-      const res = http.post(
-        loginUrl,
-        JSON.stringify({ username: __ENV.USERNAME, password: __ENV.PASSWORD }),
-        {
-          headers: {
-            'Accept': 'application/json, text/plain, */*',
-            'Content-Type': 'application/json',
-            'X-App-Language': 'en',
-          },
-          timeout: '15s',
-          tags: { name: 'setup_auth' },
-        }
-      );
-
-      if (res.status === 200 && res.body) {
-        const body = JSON.parse(res.body);
-        const token = body?.data?.token || body?.token || body?.access_token || null;
-        if (token) {
-          console.log('[setup] Authentication successful.');
-          return { token };
-        }
+  // Attempt login using default credentials
+  const loginUrl = `${BASE_URL}/api/v1/family-card/login/dev`;
+  console.log(`[setup] Authenticating ${LOGIN_CREDENTIALS.username} at ${loginUrl}...`);
+  try {
+    const res = http.post(
+      loginUrl,
+      JSON.stringify(LOGIN_CREDENTIALS),
+      {
+        headers: {
+          'Accept': 'application/json, text/plain, */*',
+          'Content-Type': 'application/json',
+          'X-App-Language': 'en',
+        },
+        timeout: '15s',
+        tags: { name: 'setup_auth' },
       }
-      console.warn(`[setup] Login failed with status ${res.status}: ${res.body}`);
-    } catch (err) {
-      console.warn(`[setup] Login request error: ${err.message}`);
+    );
+
+    if (res.status === 200 && res.body) {
+      const body = JSON.parse(res.body);
+      const token = body?.data?.token || body?.token || body?.access_token || null;
+      if (token) {
+        console.log('[setup] Authentication successful.');
+        return { token };
+      }
     }
+    console.warn(`[setup] Login failed with status ${res.status}: ${res.body}`);
+  } catch (err) {
+    console.warn(`[setup] Login request error: ${err.message}`);
   }
 
   // Fallback to recorded default token
