@@ -147,10 +147,10 @@ function calculateAge(dob) {
   return age;
 }
 
-const FIRST_NAMES_EN = ['Rahim', 'Karim', 'Jamal', 'Hasan', 'Nabil', 'Faruk', 'Milon', 'Ratan', 'Sumon', 'Tariq', 'Monir', 'Habib'];
-const LAST_NAMES_EN = ['Ahmed', 'Islam', 'Hossain', 'Khan', 'Miah', 'Sheikh', 'Sarker', 'Das', 'Paul', 'Biswas'];
-const FIRST_NAMES_BN = ['রহিম', 'করিম', 'জামাল', 'হাসান', 'নাবিল', 'ফারুক', 'মিলন', 'রতন', 'সুমন', 'তারিক', 'মনির', 'হাবিব'];
-const LAST_NAMES_BN = ['আহমেদ', 'ইসলাম', 'হোসেন', 'খান', 'মিয়া', 'শেখ', 'সরকার', 'দাস', 'পাল', 'বিশ্বাস'];
+const FIRST_NAMES_EN = ['Fatema', 'Rokeya', 'Nasrin', 'Farhana', 'Sharmin', 'Salma', 'Tania', 'Rina', 'Sumi', 'Jesmin', 'Shirin', 'Sadia', 'Nusrat', 'Jannat', 'Taslima', 'Marufa'];
+const LAST_NAMES_EN = ['Begum', 'Khatun', 'Akter', 'Sultana', 'Jahan', 'Parvin', 'Nahar', 'Banu', 'Bibi', 'Rani'];
+const FIRST_NAMES_BN = ['ফাতেমা', 'রোকেয়া', 'নাসরিন', 'ফারহানা', 'শারমিন', 'সালমা', 'তানিয়া', 'রিনা', 'সুমি', 'জেসমিন', 'শিরিন', 'সাদিয়া', 'নুসরাত', 'জান্নাত', 'তাসলিমা', 'মারুফা'];
+const LAST_NAMES_BN = ['বেগম', 'খাতুন', 'আক্তার', 'সুলতানা', 'জাহান', 'পারভীন', 'নাহার', 'বানু', 'বিবি', 'রানী'];
 
 function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
